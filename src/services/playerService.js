@@ -1,6 +1,7 @@
-import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import { squadData } from '../utils/tournamentData';
+import { callSavePlayer, callDeletePlayer } from './adminFunctions';
 
 export async function syncCustomPlayers() {
   if (!db) return;
@@ -8,10 +9,15 @@ export async function syncCustomPlayers() {
     const querySnapshot = await getDocs(collection(db, 'custom_players'));
     querySnapshot.forEach((docSnap) => {
       const player = docSnap.data();
-      const { country, name, position, number, price } = player;
+      const { country, name, position, number, price, deleted } = player;
       if (country && name) {
         if (!squadData[country]) {
           squadData[country] = [];
+        }
+        
+        if (deleted) {
+          squadData[country] = squadData[country].filter(p => p.name.toLowerCase() !== name.toLowerCase());
+          return;
         }
         
         // Find existing player by name (case-insensitive)
@@ -39,27 +45,40 @@ export async function syncCustomPlayers() {
   }
 }
 
-export async function saveCustomPlayer(playerData) {
-  if (!db) return;
+export async function saveCustomPlayer(playerData, oldName) {
   const { country, name, position, number, price } = playerData;
-  const docId = `${country.replace(/\s+/g, '_')}_${name.replace(/\s+/g, '_')}`;
-  const docRef = doc(db, 'custom_players', docId);
   
-  const payload = {
+  // Call Cloud Function to write securely
+  await callSavePlayer({
     country,
-    name,
+    name: name.trim(),
     position,
     number: String(number),
     price: parseFloat(price) || 5.0,
-    updatedAt: new Date().toISOString()
-  };
+    oldName: oldName ? oldName.trim() : null
+  });
   
-  await setDoc(docRef, payload);
+  // If editing and player name has changed, delete the old player from local memory
+  if (oldName && oldName.trim().toLowerCase() !== name.trim().toLowerCase()) {
+    // Remove from in-memory squadData
+    if (squadData[country]) {
+      squadData[country] = squadData[country].filter(p => p.name.toLowerCase() !== oldName.trim().toLowerCase());
+    }
+  }
   
   // Also update global squadData in-memory immediately
   if (!squadData[country]) {
     squadData[country] = [];
   }
+  
+  const payload = {
+    country,
+    name: name.trim(),
+    position,
+    number: String(number),
+    price: parseFloat(price) || 5.0
+  };
+
   const idx = squadData[country].findIndex(p => p.name.toLowerCase() === name.toLowerCase());
   if (idx > -1) {
     squadData[country][idx] = {
@@ -68,6 +87,16 @@ export async function saveCustomPlayer(playerData) {
     };
   } else {
     squadData[country].push(payload);
+  }
+}
+
+export async function deleteCustomPlayer(country, name) {
+  // Call Cloud Function to delete securely
+  await callDeletePlayer(country, name);
+  
+  // Also remove from local in-memory squadData immediately
+  if (squadData[country]) {
+    squadData[country] = squadData[country].filter(p => p.name.toLowerCase() !== name.trim().toLowerCase());
   }
 }
 

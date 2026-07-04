@@ -2,19 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../context/AuthContext';
-import { seedDatabase } from '../../utils/seeder';
 import LiveMatchBanner from './LiveMatchBanner';
 import MatchCard from './MatchCard';
 import FifaTrophyHero from './FifaTrophyHero';
-import { Database, Calendar, Award } from 'lucide-react';
+import { Calendar, Award } from 'lucide-react';
 
 export default function Dashboard() {
   const { user } = useAuth();
   const [allMatches, setAllMatches] = useState([]);
   const [predictions, setPredictions] = useState({});
   const [loading, setLoading] = useState(true);
-  const [seeding, setSeeding] = useState(false);
-  const [seedMessage, setSeedMessage] = useState('');
 
   // 1. Listen to matches in real-time
   useEffect(() => {
@@ -64,23 +61,6 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [user]);
 
-  const handleSeed = async () => {
-    setSeeding(true);
-    setSeedMessage('');
-    try {
-      const result = await seedDatabase();
-      if (result.alreadySeeded) {
-        setSeedMessage('Database was already seeded!');
-      } else {
-        setSeedMessage(`Successfully seeded ${result.count} mock matches!`);
-      }
-    } catch (err) {
-      setSeedMessage(`Failed to seed: ${err.message}`);
-    } finally {
-      setSeeding(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
@@ -93,7 +73,7 @@ export default function Dashboard() {
   // Filter matches into Scheduled and Completed
   const upcomingMatches = allMatches.filter(m => m.status === 'SCHEDULED');
   const completedMatches = allMatches.filter(m => m.status === 'FINISHED' || m.status === 'CONFIRMED' || m.confirmed);
-  const liveInProgressMatches = allMatches.filter(m => m.status === 'IN_PLAY' || m.status === 'PAUSED');
+  const liveInProgressMatches = allMatches.filter(m => m.status === 'IN_PLAY' || m.status === 'PAUSED' || m.status === 'LIVE');
 
   // Featured match logic:
   // 1. Show live in-progress match first.
@@ -106,19 +86,10 @@ export default function Dashboard() {
       {/* 3D Trophy Hero Header */}
       <FifaTrophyHero />
       
-      {/* Seed button when no matches exist */}
+      {/* Empty State when no matches exist */}
       {allMatches.length === 0 && (
         <div className="card text-center py-10">
-          <p className="text-gray-400 text-sm mb-4">No tournament matches found in Firestore.</p>
-          <button
-            onClick={handleSeed}
-            disabled={seeding}
-            className="submit-btn !w-auto !inline-flex items-center gap-2 !px-8"
-          >
-            <Database className="w-4 h-4" />
-            <span>{seeding ? 'Seeding...' : 'Seed Tournament Matches'}</span>
-          </button>
-          {seedMessage && <p className="text-xs mt-3 text-[#F5C518] font-bold">{seedMessage}</p>}
+          <p className="text-gray-400 text-sm">No tournament matches found in Firestore.</p>
         </div>
       )}
 

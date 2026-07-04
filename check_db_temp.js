@@ -1,14 +1,40 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Simple manual .env parser for Node environment execution
+try {
+  const envPath = path.resolve(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    envContent.split('\n').forEach(line => {
+      const parts = line.split('=');
+      if (parts.length >= 2) {
+        const key = parts[0].trim();
+        const value = parts.slice(1).join('=').trim().replace(/^['"]|['"]$/g, '');
+        if (key && !key.startsWith('#')) {
+          process.env[key] = value;
+        }
+      }
+    });
+  }
+} catch (e) {
+  console.warn("Could not read .env file:", e);
+}
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCOufxbWJplBY8tL035Ags9wjCbgzH_cqU",
-  authDomain: "fifa-69f1e.firebaseapp.com",
-  projectId: "fifa-69f1e",
-  storageBucket: "fifa-69f1e.firebasestorage.app",
-  messagingSenderId: "71066011642",
-  appId: "1:71066011642:web:6bdccaea5ed4af96460643"
+  apiKey: process.env.VITE_FIREBASE_API_KEY,
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.VITE_FIREBASE_APP_ID
 };
 
 const app = initializeApp(firebaseConfig);
@@ -18,7 +44,12 @@ const auth = getAuth(app);
 async function check() {
   try {
     console.log("Logging in as admin...");
-    await signInWithEmailAndPassword(auth, "admin@rit.ac.in", "admin123");
+    const adminEmail = process.env.ADMIN_EMAIL || "admin@rit.ac.in";
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) {
+      throw new Error("ADMIN_PASSWORD is not set in the environment variables!");
+    }
+    await signInWithEmailAndPassword(auth, adminEmail, adminPassword);
     console.log("Logged in successfully!");
 
     console.log("\nChecking matches...");

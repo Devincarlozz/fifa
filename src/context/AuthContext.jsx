@@ -17,6 +17,7 @@ import {
   serverTimestamp 
 } from 'firebase/firestore';
 import { auth, db, googleProvider, isFirebaseConfigured } from '../services/firebase';
+import { callEnsureUserProfile } from '../services/adminFunctions';
 
 const AuthContext = createContext(null);
 
@@ -40,23 +41,32 @@ export function AuthProvider({ children }) {
 
   const handleUserLoginSuccess = async (currentUser) => {
     if (!currentUser) return;
-    const mapped = mapFirebaseUser(currentUser);
-    const emailLower = mapped.email ? mapped.email.toLowerCase() : '';
-    let isUserAdmin = emailLower === 'admin@rit.ac.in' || emailLower === 'bhagathkrishnan06@gmail.com' || emailLower === '24bb16641@rit.ac.in';
 
-    // Enforce email domain restrictions: allow only @rit.ac.in (or admin emails)
-    const isRitEmail = emailLower && emailLower.endsWith('@rit.ac.in');
-    if (!isUserAdmin && !isRitEmail) {
-      await signOut(auth);
-      setError('Access restricted to @rit.ac.in accounts only.');
-      setUser(null);
-      setIsAdmin(false);
-      return;
-    }
+    try {
+      // Force refresh the token to retrieve the latest Custom Claims (like admin status)
+      const idTokenResult = await getIdTokenResult(currentUser, true);
+      const mapped = mapFirebaseUser(currentUser);
+      const emailLower = mapped.email ? mapped.email.toLowerCase() : '';
 
-    // Verify if profile exists in db and check admin & active status
-    if (db) {
-      try {
+      // Check if user is one of the initial admin emails
+      const isInitialAdmin = emailLower === 'admin@rit.ac.in' || 
+                             emailLower === 'bhagathkrishnan06@gmail.com' || 
+                             emailLower === '24bb16641@rit.ac.in';
+
+      let isUserAdmin = !!idTokenResult.claims.admin || isInitialAdmin;
+
+      // Enforce email domain restrictions: allow only @rit.ac.in (or admin accounts)
+      const isRitEmail = emailLower && emailLower.endsWith('@rit.ac.in');
+      if (!isUserAdmin && !isRitEmail && !isInitialAdmin) {
+        await signOut(auth);
+        setError('Access restricted to @rit.ac.in accounts only.');
+        setUser(null);
+        setIsAdmin(false);
+        return;
+      }
+
+      // Verify if profile exists in db and check active status
+      if (db) {
         const userRef = doc(db, 'users', currentUser.uid);
         const docSnap = await getDoc(userRef);
 
@@ -70,10 +80,11 @@ export function AuthProvider({ children }) {
             setIsAdmin(false);
             return;
           }
-          if (userData.isAdmin || userData.role === 'admin') {
+          // Enable client-side admin privileges if role/isAdmin is set in DB
+          if (userData.isAdmin === true || userData.role === 'admin') {
             isUserAdmin = true;
           }
-          // Try to patch isActive if missing — non-fatal if it fails (rules may block it)
+          // Try to patch isActive if missing — non-fatal if it fails
           if (userData.isActive === undefined) {
             try {
               await updateDoc(userRef, { isActive: true });
@@ -82,31 +93,38 @@ export function AuthProvider({ children }) {
             }
           }
         } else {
-          // Create new user profile in Firestore
+          // Profile does not exist, trigger server-side initialization
           try {
-            await setDoc(userRef, {
-              uid: currentUser.uid,
-              name: currentUser.displayName || 'Anonymous',
-              email: currentUser.email,
-              photoURL: currentUser.photoURL || '',
-              totalPoints: 0,
-              predictionsCount: 0,
-              isActive: true,
-              isAdmin: isUserAdmin,
-              createdAt: serverTimestamp()
-            });
+            await callEnsureUserProfile();
           } catch (createErr) {
-            console.warn('Could not create user profile (non-fatal):', createErr.code);
+            console.warn('Could not create user profile via Cloud Function, running client fallback:', createErr);
+            try {
+              await setDoc(userRef, {
+                uid: currentUser.uid,
+                name: currentUser.displayName || 'Anonymous',
+                email: currentUser.email,
+                photoURL: currentUser.photoURL || '',
+                totalPoints: 0,
+                predictionsCount: 0,
+                isActive: true,
+                isAdmin: isUserAdmin,
+                createdAt: serverTimestamp()
+              });
+            } catch (fallbackErr) {
+              console.error('Client-side fallback profile creation failed:', fallbackErr);
+            }
           }
         }
-      } catch (err) {
-        // Non-fatal: log but don't break login for profile read errors
-        console.error('Profile check error (non-fatal):', err);
       }
-    }
 
-    setIsAdmin(isUserAdmin);
-    setUser(mapped);
+      setIsAdmin(isUserAdmin);
+      setUser(mapped);
+    } catch (err) {
+      console.error('Login success handler error:', err);
+      setError(err.message || 'Error parsing user profile.');
+      setUser(null);
+      setIsAdmin(false);
+    }
   };
 
   const loginWithGoogle = async () => {
@@ -155,10 +173,15 @@ export function AuthProvider({ children }) {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const currentUser = userCredential.user;
 
-      // Verify admin status from Firestore
+      // Verify admin status from Custom Claims (or email or Firestore)
+      const idTokenResult = await getIdTokenResult(currentUser, true);
       const emailLower = currentUser.email ? currentUser.email.toLowerCase() : '';
-      let isUserAdmin = emailLower === 'admin@rit.ac.in' || emailLower === 'bhagathkrishnan06@gmail.com' || emailLower === '24bb16641@rit.ac.in';
+      const isInitialAdmin = emailLower === 'admin@rit.ac.in' || 
+                             emailLower === 'bhagathkrishnan06@gmail.com' || 
+                             emailLower === '24bb16641@rit.ac.in';
       
+      let isUserAdmin = !!idTokenResult.claims.admin || isInitialAdmin;
+
       if (db) {
         const userRef = doc(db, 'users', currentUser.uid);
         const docSnap = await getDoc(userRef);
@@ -168,12 +191,8 @@ export function AuthProvider({ children }) {
             await signOut(auth);
             throw new Error('Your account has been deactivated by an admin.');
           }
-          if (userData.isAdmin || userData.role === 'admin') {
+          if (userData.isAdmin === true || userData.role === 'admin') {
             isUserAdmin = true;
-          }
-          // Defensively ensure user document has isActive set to true if it is missing
-          if (userData.isActive === undefined) {
-            await updateDoc(userRef, { isActive: true });
           }
         }
       }

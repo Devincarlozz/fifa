@@ -1,6 +1,4 @@
 // src/utils/dreamTeamCalc.js
-import { doc, updateDoc, collection, getDocs, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '../services/firebase';
 import { squadData } from './tournamentData';
 
 /**
@@ -66,75 +64,4 @@ export function calculateDreamTeamPoints(dreamTeamPlayers, rankings) {
   });
 
   return { total, breakdown, playerPoints };
-}
-
-/**
- * Process rankings submitted by Admin.
- * Saves rankings and updates points for all users.
- */
-export async function processDreamTeamRankings(rankings, adminEmail) {
-  if (!db) {
-    throw new Error("Database is not connected.");
-  }
-
-  // 1. Save rankings to system settings doc
-  const systemRef = doc(db, 'system', 'dream_team_rankings');
-  try {
-    await setDoc(systemRef, {
-      rankings,
-      publishedAt: new Date().toISOString(),
-      publishedBy: adminEmail
-    }, { merge: true });
-  } catch (err) {
-    console.error("Failed to write dream_team_rankings system doc:", err);
-    throw err;
-  }
-
-  // 2. Fetch all user dream teams
-  const dtSnapshot = await getDocs(collection(db, 'dream_teams'));
-  const dreamTeams = [];
-  dtSnapshot.forEach((doc) => {
-    dreamTeams.push({
-      id: doc.id,
-      ...doc.data()
-    });
-  });
-
-  // 3. For each user dream team, calculate and award points
-  for (const dt of dreamTeams) {
-    const userId = dt.id || dt.userId;
-    if (!userId) continue;
-
-    const { total, breakdown, playerPoints } = calculateDreamTeamPoints(dt.players, rankings);
-
-    // Update the dream team document
-    const dtRef = doc(db, 'dream_teams', userId);
-    await updateDoc(dtRef, {
-      pointsEarned: total,
-      pointsBreakdown: breakdown,
-      playerPointsBreakdown: playerPoints,
-      pointsAwardedAt: new Date().toISOString()
-    });
-
-    // Update the user's document
-    try {
-      const userRef = doc(db, 'users', userId);
-      const userDocSnap = await getDoc(userRef);
-      if (userDocSnap.exists()) {
-        const userData = userDocSnap.data();
-        const oldDtPoints = userData.dreamTeamPoints || 0;
-        const currentTotal = userData.totalPoints || 0;
-        
-        // Calculate new total points (avoids double counting if re-published)
-        const newTotal = currentTotal - oldDtPoints + total;
-
-        await updateDoc(userRef, {
-          dreamTeamPoints: total,
-          totalPoints: newTotal
-        });
-      }
-    } catch (userErr) {
-      console.error(`Failed to update points for user ${userId}:`, userErr);
-    }
-  }
 }

@@ -1,6 +1,6 @@
 // src/components/dreamteam/DreamTeam.jsx
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc, setDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, orderBy, limit, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { squadData } from '../../utils/tournamentData';
@@ -269,6 +269,12 @@ export default function DreamTeam() {
   // Countdown timer state
   const [countdownText, setCountdownText] = useState('');
 
+  // Phase settings & eliminated teams states
+  const [activePhase, setActivePhase] = useState(1);
+  const [budgetLimit, setBudgetLimit] = useState(100.0);
+  const [dreamTeamTitle, setDreamTeamTitle] = useState('Dream Team');
+  const [eliminatedTeamsList, setEliminatedTeamsList] = useState([]);
+
   // Check starter status of a slot based on active formation
   const isSlotStarting = (slotId, form) => {
     const config = FORMATION_CONFIGS[form];
@@ -282,6 +288,41 @@ export default function DreamTeam() {
     return false;
   };
 
+  // 1. Listen to settings and eliminated teams in real-time
+  useEffect(() => {
+    if (!db) return;
+    
+    const settingsRef = doc(db, 'system', 'dream_team_settings');
+    const unsubSettings = onSnapshot(settingsRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setActivePhase(data.activePhase || 1);
+        setBudgetLimit(parseFloat(data.budget) || 100.0);
+        setDreamTeamTitle(data.title || 'Dream Team');
+        
+        if (data.closingTime) {
+          setKickoffTime(new Date(data.closingTime));
+        }
+        if (data.status === 'closed') {
+          setIsLocked(true);
+        }
+      }
+    });
+
+    const elimRef = doc(db, 'system', 'eliminated_teams');
+    const unsubElim = onSnapshot(elimRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setEliminatedTeamsList(docSnap.data().teams || []);
+      }
+    });
+
+    return () => {
+      unsubSettings();
+      unsubElim();
+    };
+  }, []);
+
+  // 2. Fetch User's Dream Team & rankings for the current active phase
   useEffect(() => {
     async function loadData() {
       if (!user) {
@@ -289,28 +330,14 @@ export default function DreamTeam() {
         return;
       }
 
+      setLoading(true);
       try {
-        // 1. Fetch Kickoff Time of earliest match
-        if (db) {
-          const matchesRef = collection(db, 'matches');
-          const q = query(matchesRef, orderBy('kickoffTime', 'asc'), limit(1));
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            const firstMatch = snap.docs[0].data();
-            if (firstMatch.kickoffTime) {
-              const date = firstMatch.kickoffTime.toDate ? firstMatch.kickoffTime.toDate() : new Date(firstMatch.kickoffTime);
-              setKickoffTime(date);
-            }
-          }
-        }
-
-        // 2. Fetch User's Dream Team
         let existingSquad = {};
         let capSlot = null;
         let savedFormation = '4-4-2';
 
         if (user.isMock || !db) {
-          const localData = localStorage.getItem(`mock_dream_team_${user.uid}`);
+          const localData = localStorage.getItem(`mock_dream_team_${user.uid}_phase${activePhase}`);
           if (localData) {
             const data = JSON.parse(localData);
             if (data.formation) {
@@ -338,8 +365,20 @@ export default function DreamTeam() {
             }
           }
         } else {
-          const dtRef = doc(db, 'dream_teams', user.uid);
-          const dtSnap = await getDoc(dtRef);
+          const docId = activePhase === 2 ? `${user.uid}_phase2` : `${user.uid}_phase1`;
+          let dtRef = doc(db, 'dream_teams', docId);
+          let dtSnap = await getDoc(dtRef);
+
+          // Phase 1 backward compatibility check
+          if (activePhase === 1 && !dtSnap.exists()) {
+            const oldRef = doc(db, 'dream_teams', user.uid);
+            const oldSnap = await getDoc(oldRef);
+            if (oldSnap.exists()) {
+              dtRef = oldRef;
+              dtSnap = oldSnap;
+            }
+          }
+
           if (dtSnap.exists()) {
             const data = dtSnap.data();
             if (data.formation) {
@@ -371,13 +410,15 @@ export default function DreamTeam() {
         setSquad(existingSquad);
         setCaptainSlot(capSlot);
 
-        // 3. Fetch Admin published Rankings
+        // Fetch rankings for this specific phase
         if (db) {
-          const rankingsRef = doc(db, 'system', 'dream_team_rankings');
+          const rankingsRef = doc(db, 'system', `dream_team_rankings_phase${activePhase}`);
           const rankingsSnap = await getDoc(rankingsRef);
           if (rankingsSnap.exists()) {
             const data = rankingsSnap.data();
             setRankings(data.rankings);
+          } else {
+            setRankings(null);
           }
         }
       } catch (err) {
@@ -387,7 +428,7 @@ export default function DreamTeam() {
       }
     }
     loadData();
-  }, [user]);
+  }, [user, activePhase]);
 
   // Lock status & countdown updater
   useEffect(() => {
@@ -531,7 +572,7 @@ export default function DreamTeam() {
   const countryWarning = Object.entries(countryCounts).find(([_, count]) => count > 3);
 
   const totalSquadValue = Object.values(squad).reduce((sum, p) => sum + (p.price || 5.0), 0);
-  const budgetRemaining = 100.0 - totalSquadValue;
+  const budgetRemaining = budgetLimit - totalSquadValue;
 
   // Handle player selection
   const selectPlayer = (player) => {
@@ -561,7 +602,7 @@ export default function DreamTeam() {
     const oldPrice = activeSlotCurrentPlayer ? activeSlotCurrentPlayer.price : 0;
     const netCost = playerPrice - oldPrice;
     if (budgetRemaining - netCost < 0) {
-      alert("Insufficient budget! You cannot exceed the $100.0M limit.");
+      alert(`Insufficient budget! You cannot exceed the $${budgetLimit.toFixed(1)}M limit.`);
       return;
     }
 
@@ -634,6 +675,9 @@ export default function DreamTeam() {
     // Group players by position
     const pools = { GK: [], DF: [], MF: [], FW: [] };
     Object.entries(squadData).forEach(([country, players]) => {
+      // Filter out players of eliminated teams during Phase 1
+      if (activePhase === 1 && eliminatedTeamsList.includes(country)) return;
+      
       players.forEach(p => {
         pools[p.position].push({
           name: p.name,
@@ -665,7 +709,7 @@ export default function DreamTeam() {
       for (const slot of slots) {
         const pool = pools[slot.pos];
         const remainingSlots = slots.length - Object.keys(selected).length - 1;
-        const maxAllowedPrice = 100.0 - totalPrice - (remainingSlots * 4.5);
+        const maxAllowedPrice = budgetLimit - totalPrice - (remainingSlots * 4.5);
 
         const candidates = pool.filter(p => {
           const isPicked = Object.values(selected).some(sp => sp.name === p.name && sp.team === p.team);
@@ -690,10 +734,10 @@ export default function DreamTeam() {
         totalPrice += chosen.price;
       }
 
-      if (success && totalPrice <= 100.0) {
+      if (success && totalPrice <= budgetLimit) {
         setSquad(selected);
         setCaptainSlot('GK1');
-        setMessage({ type: 'success', text: "🎉 Auto-selected a valid 15-player squad! Don't forget to Save." });
+        setMessage({ type: 'success', text: `🎉 Auto-selected a valid 15-player squad! Don't forget to Save.` });
         setTimeout(() => setMessage(null), 4000);
         return;
       }
@@ -712,7 +756,7 @@ export default function DreamTeam() {
       return;
     }
     if (budgetRemaining < 0) {
-      setMessage({ type: 'error', text: 'Insufficient budget! Your team value exceeds the $100.0M limit.' });
+      setMessage({ type: 'error', text: `Insufficient budget! Your team value exceeds the $${budgetLimit.toFixed(1)}M limit.` });
       return;
     }
     if (startingSlots.some(slot => !squad[slot.id])) {
@@ -750,19 +794,20 @@ export default function DreamTeam() {
       };
 
       if (user.isMock || !db) {
-        localStorage.setItem(`mock_dream_team_${user.uid}`, JSON.stringify(squadDoc));
+        localStorage.setItem(`mock_dream_team_${user.uid}_phase${activePhase}`, JSON.stringify(squadDoc));
         setMessage({ type: 'success', text: '🎉 Squad saved locally!' });
         setTimeout(() => setMessage(null), 3500);
       } else {
         try {
-          const dtRef = doc(db, 'dream_teams', user.uid);
+          const docId = activePhase === 2 ? `${user.uid}_phase2` : `${user.uid}_phase1`;
+          const dtRef = doc(db, 'dream_teams', docId);
           await setDoc(dtRef, squadDoc);
-          setMessage({ type: 'success', text: '🎉 Dream Team saved successfully!' });
+          setMessage({ type: 'success', text: `🎉 ${dreamTeamTitle} saved successfully!` });
           setTimeout(() => setMessage(null), 3500);
         } catch (firestoreErr) {
           console.error('Firestore save failed:', firestoreErr);
           // Fall back to localStorage so the squad is never lost
-          localStorage.setItem(`dream_team_backup_${user.uid}`, JSON.stringify(squadDoc));
+          localStorage.setItem(`dream_team_backup_${user.uid}_phase${activePhase}`, JSON.stringify(squadDoc));
           
           const code = firestoreErr?.code || '';
           if (code === 'permission-denied') {
@@ -794,6 +839,8 @@ export default function DreamTeam() {
     const playersList = [];
     Object.entries(squadData).forEach(([country, players]) => {
       if (selectedCountry && selectedCountry !== country) return;
+      // Filter out players of eliminated teams during Phase 1
+      if (activePhase === 1 && eliminatedTeamsList.includes(country)) return;
       
       players.forEach(p => {
         if (p.position === activeSlot.position) {
@@ -841,7 +888,7 @@ export default function DreamTeam() {
       
       {/* Title */}
       <h1 className="font-display text-4xl font-black tracking-widest text-center uppercase mb-1.5 select-none bg-gradient-to-r from-white via-gray-200 to-gray-400 bg-clip-text text-transparent">
-        FIFA FANTASY DREAM TEAM
+        FIFA FANTASY {dreamTeamTitle.toUpperCase()}
       </h1>
       <p className="text-xs text-[#F5C518] uppercase tracking-widest font-extrabold mb-4 select-none">
         Build your squad • Manage starting XI • Select Captain
@@ -868,7 +915,7 @@ export default function DreamTeam() {
                 <Award className="w-6 h-6" />
               </div>
               <div className="text-left">
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Dream Team Points Resolved</h3>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">{dreamTeamTitle} Points Resolved</h3>
                 <p className="text-[10px] text-gray-300 font-sans mt-0.5">Points have been added to your profile standings.</p>
               </div>
             </div>
@@ -1587,7 +1634,7 @@ export default function DreamTeam() {
               </div>
               <div>
                 <h3 className="text-lg font-black text-white uppercase tracking-wider font-display">
-                  🏆 DREAM TEAM RULES
+                  🏆 {dreamTeamTitle.toUpperCase()} RULES
                 </h3>
                 <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">How to Build & Score points</p>
               </div>

@@ -1,0 +1,43 @@
+FIFA World Cup 2026 Predictor - Release Notes
+
+Version 1.0.81 & 1.0.82 Changes:
+
+1. Centralized Settings & Phase Management
+- Linked the Dream Team interface dynamically to the Firestore document `system/dream_team_settings`.
+- Enabled live-sync settings including:
+  - `activePhase` (Phase 1: Dream Team; Phase 2: Team of the Tournament).
+  - `budget` (100.0M for Phase 1; 200.0M for Phase 2).
+  - `title` ("Dream Team" or "Team of the Tournament").
+  - `closingTime` (custom phase lockout schedule).
+- Squad data is automatically persisted to `/dream_teams/{userId}_phase1` or `/dream_teams/{userId}_phase2` based on the active phase.
+
+2. Country Eliminations & Selection Pool Filters
+- Created a real-time listener for the eliminated teams array under `system/eliminated_teams`.
+- For Phase 1 (until QFs), players from eliminated countries are filtered out of the squad-building autocomplete search pools and the auto-select randomizer.
+- Integrated a Status Controller under Manage Players in the Admin Dashboard. Admins can:
+  - Mark any team as "Eliminated," which adds them to the database array, queries all matching custom players in Firestore, deletes those player documents, and cleans them from in-memory lists.
+  - "Restore" an eliminated country to make its players selectable again.
+
+3. Tournament Awards Predictions
+- Added a Tournament Awards Predictions card inside the PredictForm.
+- Participants can predict the Player of the Tournament, Golden Boot Winner, and Golden Glove Winner.
+- Implemented global player search autocomplete query filters:
+  - Player of the Tournament & Golden Boot search all roster players globally.
+  - Golden Glove searches are restricted strictly to Goalkeepers.
+- Predictions lock automatically at kickoff time of the first knockout match. Saves are persisted to `/awards_predictions/{userId}`.
+- Added a Resolve Tournament Awards interface in the admin panel to publish official winners, compute points (+3 per correct pick), and update user profile standings.
+
+4. Dynamic Group Standings Widget
+- Replaced the homepage middle-column Live Scoreboard banner with a dynamic Group Standings (Table) component.
+- Standings are fetched dynamically from the World Cup API (groups and teams endpoints).
+- Added a group selector dropdown (Group A to L).
+- Added a robust mock database fallback mapping all 48 teams to flags and codes in case of network or API failure.
+
+5. Predict Tab Auto-Resolver
+- Updated PredictForm to resolve the featured match dynamically when no query parameter `matchId` is supplied (defaults to the active featured dashboard match instead of a hardcoded ID).
+
+6. Rule Modals & Info Cards
+- Updated modal instructions in Layout to document the +3 points scoring rules for Tournament Awards, and the phase budget changes ($100.0M -> $200.0M).
+
+7. Deployment
+- Built and successfully deployed the production package to Cloudflare Pages (Version 1.0.82).

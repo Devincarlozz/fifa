@@ -9,9 +9,10 @@ import { Play, HelpCircle, Trophy, Users, CheckSquare, RefreshCw } from 'lucide-
 export default function FifaTrophyHero() {
   const { user } = useAuth();
   const [stats, setStats] = useState({ players: 0, predictions: 0 });
-  const [webMatches, setWebMatches] = useState([]);
-  const [loadingWeb, setLoadingWeb] = useState(true);
-  const [spinning, setSpinning] = useState(false);
+  const [groupsData, setGroupsData] = useState([]);
+  const [teamsData, setTeamsData] = useState({});
+  const [selectedGroup, setSelectedGroup] = useState('A');
+  const [loadingStandings, setLoadingStandings] = useState(true);
 
   useEffect(() => {
     if (!db) return;
@@ -31,52 +32,111 @@ export default function FifaTrophyHero() {
   }, [user]);
 
   useEffect(() => {
-    if (!db) {
-      setLoadingWeb(false);
-      return;
-    }
-    
-    const matchesRef = collection(db, 'matches');
-    const q = query(matchesRef, orderBy('kickoffTime', 'asc'));
-    
-    const unsubscribe = onSnapshot(q, (snap) => {
-      const list = [];
-      snap.forEach(doc => {
-        list.push({ id: doc.id, ...doc.data() });
-      });
-      
-      const live = list.filter(m => m.status === 'IN_PLAY');
-      const upcoming = list.filter(m => m.status === 'SCHEDULED');
-      const finished = list.filter(m => m.status === 'FINISHED' || m.status === 'CONFIRMED' || m.confirmed);
-      
-      finished.sort((a, b) => {
-        const tA = a.kickoffTime?.toDate ? a.kickoffTime.toDate() : new Date(a.kickoffTime);
-        const tB = b.kickoffTime?.toDate ? b.kickoffTime.toDate() : new Date(b.kickoffTime);
-        return tB - tA;
-      });
-      
-      const merged = [...live, ...upcoming, ...finished].slice(0, 3);
-      const formatted = merged.map(m => ({
-        id: m.id,
-        homeTeam: m.homeTeam?.name || 'TBD',
-        homeCode: m.homeTeam?.code || 'TBD',
-        homeGoals: m.confirmedResult?.homeGoals ?? m.liveScore?.home ?? 0,
-        awayTeam: m.awayTeam?.name || 'TBD',
-        awayCode: m.awayTeam?.code || 'TBD',
-        awayGoals: m.confirmedResult?.awayGoals ?? m.liveScore?.away ?? 0,
-        status: m.status === 'IN_PLAY' ? 'LIVE' : m.confirmed ? 'FT' : 'SCHED',
-        timeStr: m.status === 'IN_PLAY' ? 'LIVE' : m.confirmed ? 'FT' : m.kickoffTime ? new Date(m.kickoffTime.toDate ? m.kickoffTime.toDate() : m.kickoffTime).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) : 'TBD'
-      }));
-      
-      setWebMatches(formatted);
-      setLoadingWeb(false);
-    }, (err) => {
-      console.error("Error listening to local matches in hero:", err);
-      setLoadingWeb(false);
-    });
-    
-    return () => unsubscribe();
+    let active = true;
+    const fetchStandings = async () => {
+      try {
+        const [groupsRes, teamsRes] = await Promise.all([
+          fetch("https://worldcup26.ir/get/groups"),
+          fetch("https://worldcup26.ir/get/teams")
+        ]);
+        
+        if (!groupsRes.ok || !teamsRes.ok) throw new Error("API error");
+        
+        const groupsJson = await groupsRes.json();
+        const teamsJson = await teamsRes.json();
+        
+        if (!active) return;
+        
+        // Map teams list to a quick lookup map by ID
+        const teamsMap = {};
+        if (teamsJson && teamsJson.teams) {
+          teamsJson.teams.forEach(t => {
+            teamsMap[String(t.id)] = {
+              name: t.name_en || t.name_fa || 'Unknown',
+              code: t.fifa_code || 'TBD',
+              flag: t.flag || 'https://flagcdn.com/w80/un.png'
+            };
+          });
+        }
+        
+        if (groupsJson && groupsJson.groups) {
+          setGroupsData(groupsJson.groups);
+          setTeamsData(teamsMap);
+          setLoadingStandings(false);
+        } else {
+          throw new Error("Invalid response structure");
+        }
+      } catch (err) {
+        console.error("Failed to fetch group standings, using mock fallback:", err);
+        if (!active) return;
+        
+        // Populate mock groups A–L
+        const fullMockGroups = [];
+        const alphabet = 'ABCDEFGHIJKL';
+        for (let i = 0; i < alphabet.length; i++) {
+          const char = alphabet[i];
+          const mockTeams = [];
+          for (let j = 0; j < 4; j++) {
+            const mockId = String(i * 4 + j + 1);
+            mockTeams.push({
+              team_id: mockId,
+              mp: '0',
+              w: '0',
+              d: '0',
+              l: '0',
+              pts: '0',
+              gf: '0',
+              ga: '0',
+              gd: '0'
+            });
+          }
+          fullMockGroups.push({ name: char, teams: mockTeams });
+        }
+
+        const mockTeamsMap = {
+          '1': { name: 'USA', code: 'USA', flag: 'https://flagcdn.com/w80/us.png' },
+          '2': { name: 'Mexico', code: 'MEX', flag: 'https://flagcdn.com/w80/mx.png' },
+          '3': { name: 'Canada', code: 'CAN', flag: 'https://flagcdn.com/w80/ca.png' },
+          '4': { name: 'Argentina', code: 'ARG', flag: 'https://flagcdn.com/w80/ar.png' },
+          '5': { name: 'Brazil', code: 'BRA', flag: 'https://flagcdn.com/w80/br.png' },
+          '6': { name: 'France', code: 'FRA', flag: 'https://flagcdn.com/w80/fr.png' },
+          '7': { name: 'Germany', code: 'GER', flag: 'https://flagcdn.com/w80/de.png' },
+          '8': { name: 'England', code: 'ENG', flag: 'https://flagcdn.com/w80/gb-eng.png' },
+        };
+        
+        // Fill other team codes dynamically so they aren't blank
+        for (let i = 9; i <= 48; i++) {
+          mockTeamsMap[String(i)] = {
+            name: `Team ${i}`,
+            code: `TM${i}`,
+            flag: 'https://flagcdn.com/w80/un.png'
+          };
+        }
+
+        setGroupsData(fullMockGroups);
+        setTeamsData(mockTeamsMap);
+        setLoadingStandings(false);
+      }
+    };
+    fetchStandings();
+    return () => { active = false; };
   }, []);
+
+  const activeGroup = groupsData.find(g => g.name === selectedGroup);
+  const activeGroupTeams = activeGroup ? activeGroup.teams : [];
+  
+  // Sort teams inside the group by points desc, then goal difference desc, then goals for desc
+  const sortedActiveGroupTeams = [...activeGroupTeams].sort((a, b) => {
+    const ptsA = parseInt(a.pts) || 0;
+    const ptsB = parseInt(b.pts) || 0;
+    if (ptsB !== ptsA) return ptsB - ptsA;
+    const gdA = parseInt(a.gd) || 0;
+    const gdB = parseInt(b.gd) || 0;
+    if (gdB !== gdA) return gdB - gdA;
+    const gfA = parseInt(a.gf) || 0;
+    const gfB = parseInt(b.gf) || 0;
+    return gfB - gfA;
+  });
 
   return (
     <div className="trophy-hero-section w-full relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6 page-enter">
@@ -178,59 +238,76 @@ export default function FifaTrophyHero() {
             Dream Team
           </Link>
         </div>
-      </div>
-
-      {/* Middle Column: Current Match Table fetched from web */}
-      <div className="hidden lg:flex flex-col gap-3 bg-white/[0.03] border border-white/5 rounded-2xl p-4 w-[285px] shrink-0 relative z-1 font-sans shadow-lg backdrop-blur-md">
+      </div>      {/* Middle Column: Group Standings Table fetched from API */}
+      <div className="hidden lg:flex flex-col gap-3 bg-white/[0.03] border border-white/5 rounded-2xl p-4 w-[285px] shrink-0 relative z-1 font-sans shadow-lg backdrop-blur-md text-left">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 6 }}>
-          <span style={{ fontSize: 9, fontWeight: 800, color: '#F5C518', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Live Scoreboard</span>
-          <button 
-            type="button"
-            onClick={() => {
-              setSpinning(true);
-              setTimeout(() => setSpinning(false), 800);
-            }} 
-            disabled={spinning} 
-            style={{ background: 'transparent', border: 'none', color: '#64748B', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }}
-            title="Scores update automatically in real-time"
+          <span style={{ fontSize: 9, fontWeight: 800, color: '#F5C518', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Group Standings</span>
+          <select
+            value={selectedGroup}
+            onChange={(e) => setSelectedGroup(e.target.value)}
+            style={{
+              background: '#0A0E1A',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 6,
+              color: '#F1F5F9',
+              fontSize: 10,
+              padding: '2px 6px',
+              outline: 'none',
+              cursor: 'pointer'
+            }}
           >
-            <RefreshCw style={{ width: 12, height: 12 }} className={spinning ? 'animate-spin' : ''} />
-          </button>
+            {'ABCDEFGHIJKL'.split('').map(char => (
+              <option key={char} value={char}>Group {char}</option>
+            ))}
+          </select>
         </div>
 
-        {loadingWeb ? (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 120 }}>
+        {loadingStandings ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 150 }}>
             <div style={{ width: 18, height: 18, border: '2.5px solid #F5C518', borderTopColor: 'transparent', borderRadius: '50%' }} className="animate-spin" />
           </div>
-        ) : webMatches.length === 0 ? (
+        ) : sortedActiveGroupTeams.length === 0 ? (
           <div style={{ fontSize: 11, color: '#64748B', padding: '20px 0', fontStyle: 'italic', textAlign: 'center' }}>
-            No matches scheduled.
+            No standings available.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {webMatches.map((m) => (
-              <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 10, padding: '8px 12px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, textAlign: 'left' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#F1F5F9', display: 'flex', gap: 4 }}>
-                    <span>{m.homeCode}</span>
-                    <span style={{ color: '#475569' }}>vs</span>
-                    <span>{m.awayCode}</span>
-                  </div>
-                  <div style={{ fontSize: 8, color: '#64748B', marginTop: 2, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {m.homeTeam} vs {m.awayTeam}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                  <span style={{ fontSize: 13, fontWeight: 900, color: '#F5C518', fontFamily: 'monospace' }}>
-                    {m.homeGoals} - {m.awayGoals}
-                  </span>
-                  <span style={{ fontSize: 8, color: m.status === 'LIVE' ? '#EF4444' : '#64748B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
-                    {m.timeStr}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, color: '#CBD5E1' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#64748B', fontWeight: 'bold' }}>
+                <th style={{ padding: '6px 2px', textAlign: 'center', width: 25 }}>#</th>
+                <th style={{ padding: '6px 4px', textAlign: 'left' }}>Team</th>
+                <th style={{ padding: '6px 4px', textAlign: 'center', width: 25 }}>P</th>
+                <th style={{ padding: '6px 4px', textAlign: 'center', width: 30 }}>GD</th>
+                <th style={{ padding: '6px 4px', textAlign: 'center', width: 30, color: '#F5C518' }}>Pts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedActiveGroupTeams.map((team, idx) => {
+                const teamInfo = teamsData[String(team.team_id)] || { name: `Team ${team.team_id}`, code: `T${team.team_id}`, flag: 'https://flagcdn.com/w80/un.png' };
+                return (
+                  <tr key={team.team_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', height: 32 }}>
+                    <td style={{ textAlign: 'center', fontWeight: 'bold', color: idx < 2 ? '#22C55E' : '#64748B' }}>{idx + 1}</td>
+                    <td style={{ padding: '4px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <img 
+                          src={teamInfo.flag} 
+                          alt={teamInfo.name} 
+                          style={{ width: 14, height: 10, objectFit: 'cover', borderRadius: 1 }}
+                          onError={(e) => { e.target.src = 'https://flagcdn.com/w80/un.png'; }}
+                        />
+                        <span style={{ fontWeight: 'bold', color: '#F1F5F9' }} title={teamInfo.name}>{teamInfo.code}</span>
+                      </div>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>{team.mp}</td>
+                    <td style={{ textAlign: 'center', color: parseInt(team.gd) > 0 ? '#22C55E' : parseInt(team.gd) < 0 ? '#EF4444' : '#CBD5E1' }}>
+                      {parseInt(team.gd) > 0 ? `+${team.gd}` : team.gd}
+                    </td>
+                    <td style={{ textAlign: 'center', fontWeight: 'bold', color: '#F5C518' }}>{team.pts}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </div>
 

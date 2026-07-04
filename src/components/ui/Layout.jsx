@@ -318,6 +318,7 @@ export default function Layout({ children }) {
                     ['Exact Score Match', '+5 pts', '#22C55E'],
                     ['Correct Match Outcome', '+2 pts', '#22C55E'],
                     ['Correct Man of the Match', '+3 pts', '#22C55E'],
+                    ['Tournament Awards (POTT/Boot/Glove)', '+3 pts each', '#22C55E'],
                     ['Knockout Penalty Shootout Winner', '+2 pts', '#F5C518'],
                   ].map(([label, pts, color]) => (
                     <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -325,6 +326,10 @@ export default function Layout({ children }) {
                       <span style={{ color, fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: 15 }}>{pts}</span>
                     </div>
                   ))}
+                </div>
+
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '10px 12px', fontSize: 11, color: '#94A3B8', lineHeight: 1.6 }}>
+                  🎯 <strong style={{ color: '#F5C518' }}>Tournament Awards:</strong> Predict POTT, Golden Boot, and Golden Glove. Correct answers earn +3 pts each. This section opens from the knockout rounds and locks at kickoff of the first knockout match.
                 </div>
 
                 <div style={{ background: 'rgba(245,197,24,0.05)', border: '1px solid rgba(245,197,24,0.15)', borderRadius: 10, padding: '10px 12px', fontSize: 11, color: '#94A3B8', lineHeight: 1.6 }}>
@@ -339,9 +344,17 @@ export default function Layout({ children }) {
 
             {activeTab === 'dreamteam' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: 13, color: '#CBD5E1', lineHeight: 1.6 }}>
-                <p>Build a squad of 15 players within a <strong>$100.0M budget</strong> using players from the actual tournament.</p>
+                <p>Build a squad of 15 players within a budget to earn points based on real performance rankings.</p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 10 }}>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 10, border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#F5C518', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>Two-Phase Predictions</span>
+                    <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <li><strong>Phase 1 (Dream Team):</strong> Open until the Quarter-Finals. $100.0M budget. Players from eliminated countries are removed from selection.</li>
+                      <li><strong>Phase 2 (Team of the Tournament):</strong> Opens during Semi-Finals until final kickoff. $200.0M budget. Country elimination rules do not apply.</li>
+                    </ul>
+                  </div>
+
                   <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 10, border: '1px solid rgba(255,255,255,0.05)' }}>
                     <span style={{ fontSize: 10, fontWeight: 700, color: '#F5C518', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>Squad Limits</span>
                     <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, display: 'flex', flexDirection: 'column', gap: 2 }}>

@@ -12,13 +12,24 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { processMatchResults } from '../../utils/pointsCalc';
 import { Shield, CheckCircle, Users, Calendar, PlusCircle, Trash2, Edit3, Award, Clock, ArrowRight, Save, UserCheck, X, Search } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { seedDatabase } from '../../utils/seeder';
 import { squadData } from '../../utils/tournamentData';
 import DreamTeamRankingsPanel from './DreamTeamRankingsPanel';
-import { saveCustomPlayer } from '../../services/playerService';
+import {
+  callConfirmMatchResult,
+  callRecalculateAllPoints,
+  callCreateFixture,
+  callUpdateFixture,
+  callDeleteFixture,
+  callSeedDatabase,
+  callEliminateTeam,
+  callRestoreTeam,
+  callResolveAwardsPoints,
+  callSavePlayer,
+  callDeletePlayer,
+  callClearPlayerImages
+} from '../../services/adminFunctions';
 
 const countryFlags = {
   'Algeria': '🇩🇿', 'Argentina': '🇦🇷', 'Australia': '🇦🇺', 'Austria': '🇦🇹', 'Belgium': '🇧🇪',
@@ -95,6 +106,18 @@ export default function AdminDashboard() {
   const [formPlayerNumber, setFormPlayerNumber] = useState('');
   const [formPlayerPosition, setFormPlayerPosition] = useState('FW');
   const [formPlayerPrice, setFormPlayerPrice] = useState('5.0');
+  const [squadPlayers, setSquadPlayers] = useState([]);
+  const [eliminatedTeams, setEliminatedTeams] = useState([]);
+
+  // Tournament Awards Admin states
+  const [officialPOTT, setOfficialPOTT] = useState('');
+  const [officialGoldenBoot, setOfficialGoldenBoot] = useState('');
+  const [officialGoldenGlove, setOfficialGoldenGlove] = useState('');
+  const [awardsResolved, setAwardsResolved] = useState(false);
+  const [loadingOfficialAwards, setLoadingOfficialAwards] = useState(true);
+  const [adminPottFocus, setAdminPottFocus] = useState(false);
+  const [adminBootFocus, setAdminBootFocus] = useState(false);
+  const [adminGloveFocus, setAdminGloveFocus] = useState(false);
 
   // Create Fixture Form states
   const [newHomeName, setNewHomeName] = useState('');
@@ -183,6 +206,83 @@ export default function AdminDashboard() {
     const interval = setInterval(fetchPlayers, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Listen to eliminated teams in real-time
+  useEffect(() => {
+    if (!db) return;
+    const ref = doc(db, 'system', 'eliminated_teams');
+    const unsubscribe = onSnapshot(ref, (docSnap) => {
+      if (docSnap.exists()) {
+        setEliminatedTeams(docSnap.data().teams || []);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Fetch official awards on mount
+  useEffect(() => {
+    if (!db) return;
+    const loadOfficialAwards = async () => {
+      try {
+        const docRef = doc(db, 'system', 'official_awards');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setOfficialPOTT(data.pott || '');
+          setOfficialGoldenBoot(data.goldenBoot || '');
+          setOfficialGoldenGlove(data.goldenGlove || '');
+          setAwardsResolved(data.resolved || false);
+        }
+      } catch (err) {
+        console.error("Error loading official awards:", err);
+      } finally {
+        setLoadingOfficialAwards(false);
+      }
+    };
+    loadOfficialAwards();
+  }, []);
+
+  // Flat list of all tournament players for dynamic awards suggestions
+  const allGlobalPlayers = React.useMemo(() => {
+    const list = [];
+    Object.entries(squadData).forEach(([country, players]) => {
+      players.forEach(p => {
+        list.push({
+          name: p.name,
+          team: country,
+          position: p.position || 'Player',
+          number: p.number
+        });
+      });
+    });
+    return list;
+  }, []);
+
+  const adminPottSuggestions = React.useMemo(() => {
+    if (!officialPOTT || officialPOTT.trim().length < 2) return [];
+    return allGlobalPlayers.filter(p => 
+      p.name.toLowerCase().includes(officialPOTT.toLowerCase()) || 
+      p.team.toLowerCase().includes(officialPOTT.toLowerCase())
+    ).slice(0, 8);
+  }, [officialPOTT, allGlobalPlayers]);
+
+  const adminBootSuggestions = React.useMemo(() => {
+    if (!officialGoldenBoot || officialGoldenBoot.trim().length < 2) return [];
+    return allGlobalPlayers.filter(p => 
+      p.name.toLowerCase().includes(officialGoldenBoot.toLowerCase()) || 
+      p.team.toLowerCase().includes(officialGoldenBoot.toLowerCase())
+    ).slice(0, 8);
+  }, [officialGoldenBoot, allGlobalPlayers]);
+
+  const adminGloveSuggestions = React.useMemo(() => {
+    if (!officialGoldenGlove || officialGoldenGlove.trim().length < 2) return [];
+    return allGlobalPlayers.filter(p => 
+      p.position === 'GK' && (
+        p.name.toLowerCase().includes(officialGoldenGlove.toLowerCase()) || 
+        p.team.toLowerCase().includes(officialGoldenGlove.toLowerCase())
+      )
+    ).slice(0, 8);
+  }, [officialGoldenGlove, allGlobalPlayers]);
 
   // Fetch predictions of a specific user
   const handleFetchUserPredictions = async (userId) => {
@@ -306,11 +406,16 @@ export default function AdminDashboard() {
           away: parseInt(confirmedAwayPenalties)
         } : null,
         manOfTheMatch: confirmedMOTM.trim(),
-        confirmedBy: user?.email || 'admin@rit.ac.in'
+        confirmedBy: user?.email || 'admin'
       };
 
-      // Call results calculator and leaderboard updater
-      await processMatchResults(confirmingMatchId, adminResult);
+      // Call Cloud Function to confirm results, compute points and update leaderboard
+      await callConfirmMatchResult(
+        confirmingMatchId,
+        adminResult.finalScore,
+        adminResult.penaltyScore,
+        adminResult.manOfTheMatch
+      );
 
       setSuccessMessage("✅ Results confirmed! Points distributed and leaderboard updated.");
       setConfirmingMatchId(null);
@@ -337,11 +442,7 @@ export default function AdminDashboard() {
 
     setIsSubmitting(true);
     try {
-      const matchId = `match_${Date.now()}`;
-      const matchRef = doc(db, 'matches', matchId);
-
-      const newFixture = {
-        matchId,
+      await callCreateFixture({
         homeTeam: {
           name: newHomeName.trim(),
           code: newHomeCode.trim().toUpperCase(),
@@ -354,20 +455,10 @@ export default function AdminDashboard() {
           crest: newAwayCrest.trim() || null,
           flag: countryFlags[newAwayName] || '⚽'
         },
-        kickoffTime: new Date(newKickoff),
+        kickoff: new Date(newKickoff).toISOString(),
         venue: newVenue.trim() || 'Tournament Stadium',
-        stage: newStage,
-        status: 'SCHEDULED',
-        liveScore: { home: 0, away: 0 },
-        minute: null,
-        goals: [],
-        bookings: [],
-        confirmed: false,
-        confirmedResult: null,
-        confirmedMOTM: null
-      };
-
-      await setDoc(matchRef, newFixture);
+        stage: newStage
+      });
 
       setSuccessMessage("✅ New fixture created successfully!");
       // Reset form
@@ -396,12 +487,10 @@ export default function AdminDashboard() {
     setIsSubmitting(true);
     setSuccessMessage('');
     try {
-      const matchId = `match_${Date.now()}`;
       const kickoffTime = new Date();
       kickoffTime.setHours(kickoffTime.getHours() + 2);
 
-      const sampleFixture = {
-        matchId,
+      await callCreateFixture({
         homeTeam: {
           name: "France",
           code: "FRA",
@@ -414,20 +503,10 @@ export default function AdminDashboard() {
           crest: "https://crests.football-data.org/770.svg",
           flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿"
         },
-        kickoffTime: kickoffTime.toISOString(),
+        kickoff: kickoffTime.toISOString(),
         venue: "Lusail Iconic Stadium",
-        stage: "GROUP_STAGE",
-        status: 'SCHEDULED',
-        liveScore: { home: 0, away: 0 },
-        minute: null,
-        goals: [],
-        bookings: [],
-        confirmed: false,
-        confirmedResult: null,
-        confirmedMOTM: null
-      };
-
-      await setDoc(doc(db, 'matches', matchId), sampleFixture);
+        stage: "GROUP_STAGE"
+      });
       setSuccessMessage("✅ Sample fixture (FRA vs ENG) created successfully!");
     } catch (err) {
       alert(`Error creating sample fixture: ${err.message}`);
@@ -441,7 +520,7 @@ export default function AdminDashboard() {
     setIsSubmitting(true);
     setSuccessMessage('');
     try {
-      const result = await seedDatabase(true);
+      await callSeedDatabase(true);
       setSuccessMessage(`🔄 Matches successfully re-seeded and updated!`);
       // Reload match list
       const q = query(collection(db, 'matches'), orderBy('kickoffTime', 'asc'));
@@ -466,16 +545,8 @@ export default function AdminDashboard() {
     setIsSubmitting(true);
     setSuccessMessage('');
     try {
-      const querySnapshot = await getDocs(collection(db, 'custom_players'));
-      let count = 0;
-      for (const docSnap of querySnapshot.docs) {
-        const docRef = doc(db, 'custom_players', docSnap.id);
-        await updateDoc(docRef, {
-          pictureUrl: ''
-        });
-        count++;
-      }
-      setSuccessMessage(`🗑️ Successfully cleared player image URLs for ${count} players in Firebase!`);
+      await callClearPlayerImages();
+      setSuccessMessage(`🗑️ Successfully cleared player image URLs in Firebase!`);
       // Also clear in-memory squadData pictureUrl values
       Object.keys(squadData).forEach(country => {
         squadData[country].forEach(player => {
@@ -487,6 +558,21 @@ export default function AdminDashboard() {
     } catch (err) {
       console.error("Error clearing player image URLs:", err);
       alert(`Error clearing player image URLs: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRecalculateAllPoints = async () => {
+    if (!window.confirm("Are you sure you want to recalculate points and prediction counts for all users? This will fix any incorrect points from historical matches.")) return;
+    setIsSubmitting(true);
+    setSuccessMessage('');
+    try {
+      await callRecalculateAllPoints();
+      setSuccessMessage("✅ Recalculated all user points and prediction counts successfully! Leaderboard is updated.");
+    } catch (err) {
+      console.error("Error recalculating points:", err);
+      alert(`Error recalculating points: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -515,17 +601,9 @@ export default function AdminDashboard() {
     setEditAwayGoals(match.liveScore?.away?.toString() || '0');
   };
 
-  // Save edit match status / bonus question
   const handleSaveMatchEdit = async (matchId) => {
-    if (!db) {
-      alert("Database is not connected.");
-      return;
-    }
-    
     setIsSubmitting(true);
     try {
-      const matchRef = doc(db, 'matches', matchId);
-      
       const updatedFields = {
         homeTeam: {
           name: editHomeName,
@@ -539,7 +617,7 @@ export default function AdminDashboard() {
           crest: editAwayCrest,
           flag: countryFlags[editAwayName] || '🏳️'
         },
-        kickoffTime: new Date(editKickoff),
+        kickoffTime: new Date(editKickoff).toISOString(),
         venue: editVenue,
         stage: editStage,
         liveScore: {
@@ -549,7 +627,7 @@ export default function AdminDashboard() {
         status: editStatus
       };
       
-      await updateDoc(matchRef, updatedFields);
+      await callUpdateFixture(matchId, updatedFields);
       
       // Update local state matches
       setMatches(prev => prev.map(m => m.id === matchId ? { ...m, ...updatedFields } : m));
@@ -567,8 +645,7 @@ export default function AdminDashboard() {
   const handleDeleteFixture = async (matchId) => {
     if (!window.confirm("Are you sure you want to delete this fixture? This will delete all predictions for it as well.")) return;
     try {
-      const matchRef = doc(db, 'matches', matchId);
-      await deleteDoc(matchRef);
+      await callDeleteFixture(matchId);
       setSuccessMessage("🗑️ Fixture deleted successfully!");
     } catch (err) {
       alert(`Error deleting fixture: ${err.message}`);
@@ -586,12 +663,13 @@ export default function AdminDashboard() {
     setAdminError(null);
     setSuccessMessage('');
     try {
-      await saveCustomPlayer({
+      await callSavePlayer({
         country: selectedPlayerTeam,
         name: formPlayerName.trim(),
         position: formPlayerPosition,
         number: formPlayerNumber.trim(),
-        price: parseFloat(formPlayerPrice) || 5.0
+        price: parseFloat(formPlayerPrice) || 5.0,
+        oldName: editingPlayer ? editingPlayer.name : null
       });
       setSuccessMessage(`✅ Player ${formPlayerName} saved successfully!`);
       setEditingPlayer(null);
@@ -600,6 +678,8 @@ export default function AdminDashboard() {
       setFormPlayerNumber('');
       setFormPlayerPosition('FW');
       setFormPlayerPrice('5.0');
+      // Refresh local state to force immediate re-render
+      setSquadPlayers([...(squadData[selectedPlayerTeam] || [])]);
     } catch (err) {
       console.error(err);
       setAdminError(err.message || "Failed to save player details.");
@@ -615,6 +695,99 @@ export default function AdminDashboard() {
     setFormPlayerNumber(player.number || '');
     setFormPlayerPosition(player.position || 'FW');
     setFormPlayerPrice(player.price?.toString() || '5.0');
+  };
+
+  const handleDeletePlayerClick = async (player) => {
+    if (!window.confirm(`Are you sure you want to delete ${player.name} from ${selectedPlayerTeam}?`)) {
+      return;
+    }
+    
+    setIsSubmitting(true);
+    setAdminError(null);
+    setSuccessMessage('');
+    try {
+      await callDeletePlayer(selectedPlayerTeam, player.name);
+      setSuccessMessage(`🗑️ Player ${player.name} deleted successfully!`);
+      // Refresh local squad state
+      setSquadPlayers([...(squadData[selectedPlayerTeam] || [])]);
+    } catch (err) {
+      console.error(err);
+      setAdminError(err.message || "Failed to delete player.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEliminateTeam = async (teamName) => {
+    if (!window.confirm(`Are you sure you want to eliminate ${teamName}? This will delete all custom players of ${teamName} from database, remove all players of ${teamName} from the selections, and add it to eliminated teams.`)) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setAdminError(null);
+    setSuccessMessage('');
+
+    try {
+      await callEliminateTeam(teamName);
+
+      // Remove players from local memory in squadData
+      squadData[teamName] = [];
+      setSquadPlayers([]);
+
+      setSuccessMessage(`🔴 Team ${teamName} has been eliminated. Players deleted successfully!`);
+    } catch (err) {
+      console.error(err);
+      setAdminError(`Failed to eliminate team: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRestoreTeam = async (teamName) => {
+    if (!window.confirm(`Are you sure you want to restore ${teamName}?`)) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setAdminError(null);
+    setSuccessMessage('');
+
+    try {
+      await callRestoreTeam(teamName);
+      setSuccessMessage(`🟢 Team ${teamName} has been restored successfully.`);
+    } catch (err) {
+      console.error(err);
+      setAdminError(`Failed to restore team: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleResolveAwardsPoints = async (e) => {
+    e.preventDefault();
+    if (!officialPOTT || !officialGoldenBoot || !officialGoldenGlove) {
+      alert("Please specify winners for all three awards first.");
+      return;
+    }
+    
+    if (!window.confirm("Are you sure you want to resolve Tournament Awards points? This will calculate awards points (+3 per correct prediction) for all users and update their standings.")) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setAdminError(null);
+    setSuccessMessage('');
+
+    try {
+      await callResolveAwardsPoints(officialPOTT, officialGoldenBoot, officialGoldenGlove);
+      setAwardsResolved(true);
+      setSuccessMessage(`✅ Resolved awards points successfully!`);
+    } catch (err) {
+      console.error(err);
+      setAdminError(`Failed to resolve awards points: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleAddNewPlayerClick = () => {
@@ -980,6 +1153,144 @@ export default function AdminDashboard() {
               })}
             </div>
           )}
+
+          {/* Tournament Awards Resolution Card */}
+          <div className="card space-y-6 bg-gradient-to-br from-[#0F1520] to-[#050A14] border border-white/10 p-6 rounded-2xl text-left mt-8">
+            <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+              <div className="w-10 h-10 rounded-full bg-[#F5C518]/10 border border-[#F5C518]/25 flex items-center justify-center text-[#F5C518]">
+                <Award className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white uppercase tracking-wider">
+                  🏆 Resolve Tournament Awards
+                </h3>
+                <p className="text-[11px] text-gray-400 mt-1 font-sans">
+                  Set official winners for Player of the Tournament, Golden Boot, and Golden Glove. Correct user picks get +3 pts.
+                </p>
+              </div>
+            </div>
+
+            {loadingOfficialAwards ? (
+              <p className="text-gray-500 text-xs italic">Loading official awards configuration...</p>
+            ) : (
+              <form onSubmit={handleResolveAwardsPoints} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* 1. Player of the Tournament */}
+                  <div className="relative text-left">
+                    <label className="block text-[11px] font-extrabold text-[#F5C518] uppercase tracking-wider mb-1.5 font-mono">
+                      Player of the Tournament
+                    </label>
+                    <input
+                      type="text"
+                      value={officialPOTT}
+                      onChange={(e) => setOfficialPOTT(e.target.value)}
+                      onFocus={() => setAdminPottFocus(true)}
+                      onBlur={() => setTimeout(() => setAdminPottFocus(false), 250)}
+                      placeholder="Search player..."
+                      className="w-full bg-[#0A0E1A] border border-white/10 rounded-xl p-3 text-xs text-white placeholder-gray-650 focus:outline-none focus:border-[#F5C518] transition"
+                    />
+                    {adminPottFocus && adminPottSuggestions.length > 0 && (
+                      <div className="absolute left-0 right-0 mt-1 bg-[#161D2B] border border-white/10 rounded-xl max-h-48 overflow-y-auto z-50 shadow-2xl">
+                        {adminPottSuggestions.map((p, i) => (
+                          <div
+                            key={i}
+                            onMouseDown={() => {
+                              setOfficialPOTT(`${p.name} (${p.team})`);
+                            }}
+                            className="p-2.5 text-xs text-white hover:bg-[#F5C518]/10 cursor-pointer border-b border-white/5 flex items-center justify-between"
+                          >
+                            <span className="font-semibold">{p.name}</span>
+                            <span className="text-[9px] text-gray-400 font-mono uppercase bg-white/5 px-1.5 py-0.5 rounded">{p.team} • {p.position}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. Golden Boot Winner */}
+                  <div className="relative text-left">
+                    <label className="block text-[11px] font-extrabold text-[#F5C518] uppercase tracking-wider mb-1.5 font-mono">
+                      Golden Boot Winner
+                    </label>
+                    <input
+                      type="text"
+                      value={officialGoldenBoot}
+                      onChange={(e) => setOfficialGoldenBoot(e.target.value)}
+                      onFocus={() => setAdminBootFocus(true)}
+                      onBlur={() => setTimeout(() => setAdminBootFocus(false), 250)}
+                      placeholder="Search player..."
+                      className="w-full bg-[#0A0E1A] border border-white/10 rounded-xl p-3 text-xs text-white placeholder-gray-650 focus:outline-none focus:border-[#F5C518] transition"
+                    />
+                    {adminBootFocus && adminBootSuggestions.length > 0 && (
+                      <div className="absolute left-0 right-0 mt-1 bg-[#161D2B] border border-white/10 rounded-xl max-h-48 overflow-y-auto z-50 shadow-2xl">
+                        {adminBootSuggestions.map((p, i) => (
+                          <div
+                            key={i}
+                            onMouseDown={() => {
+                              setOfficialGoldenBoot(`${p.name} (${p.team})`);
+                            }}
+                            className="p-2.5 text-xs text-white hover:bg-[#F5C518]/10 cursor-pointer border-b border-white/5 flex items-center justify-between"
+                          >
+                            <span className="font-semibold">{p.name}</span>
+                            <span className="text-[9px] text-gray-400 font-mono uppercase bg-white/5 px-1.5 py-0.5 rounded">{p.team} • {p.position}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. Golden Glove Winner */}
+                  <div className="relative text-left">
+                    <label className="block text-[11px] font-extrabold text-[#F5C518] uppercase tracking-wider mb-1.5 font-mono">
+                      Golden Glove Winner
+                    </label>
+                    <input
+                      type="text"
+                      value={officialGoldenGlove}
+                      onChange={(e) => setOfficialGoldenGlove(e.target.value)}
+                      onFocus={() => setAdminGloveFocus(true)}
+                      onBlur={() => setTimeout(() => setAdminGloveFocus(false), 250)}
+                      placeholder="Search GK..."
+                      className="w-full bg-[#0A0E1A] border border-white/10 rounded-xl p-3 text-xs text-white placeholder-gray-650 focus:outline-none focus:border-[#F5C518] transition"
+                    />
+                    {adminGloveFocus && adminGloveSuggestions.length > 0 && (
+                      <div className="absolute left-0 right-0 mt-1 bg-[#161D2B] border border-white/10 rounded-xl max-h-48 overflow-y-auto z-50 shadow-2xl">
+                        {adminGloveSuggestions.map((p, i) => (
+                          <div
+                            key={i}
+                            onMouseDown={() => {
+                              setOfficialGoldenGlove(`${p.name} (${p.team})`);
+                            }}
+                            className="p-2.5 text-xs text-white hover:bg-[#F5C518]/10 cursor-pointer border-b border-white/5 flex items-center justify-between"
+                          >
+                            <span className="font-semibold">{p.name}</span>
+                            <span className="text-[9px] text-gray-400 font-mono uppercase bg-white/5 px-1.5 py-0.5 rounded">{p.team} • GK</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-white/5 mt-4">
+                  <div>
+                    {awardsResolved ? (
+                      <span className="text-[10px] text-green-400 font-mono font-bold">✓ Awards Points Calculated & Published</span>
+                    ) : (
+                      <span className="text-[10px] text-amber-400 font-mono font-bold">⌛ Pending Resolution</span>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="bg-[#F5C518] hover:bg-amber-400 text-black font-extrabold py-2.5 px-6 rounded-xl text-xs uppercase tracking-wider transition border-none shadow-[0_0_15px_rgba(245,197,24,0.15)] cursor-pointer disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Calculating...' : 'Resolve & Publish Awards Points'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       )}
 
@@ -991,7 +1302,7 @@ export default function AdminDashboard() {
               <h3 className="text-xs font-bold text-white uppercase tracking-wider">Database Operations</h3>
               <p className="text-[10px] text-gray-400 mt-1">Reset match fixtures to default mock matches with updated kickoff dates.</p>
             </div>
-            <div className="flex gap-2.5">
+            <div className="flex flex-wrap gap-2.5">
               <button
                 type="button"
                 onClick={handleGenerateSampleFixture}
@@ -1007,6 +1318,14 @@ export default function AdminDashboard() {
                 className="bg-[#F5C518]/10 hover:bg-[#F5C518] text-[#F5C518] hover:text-black border border-[#F5C518]/25 font-bold py-2.5 px-4 rounded-xl text-xs transition duration-300 cursor-pointer disabled:opacity-50"
               >
                 🔄 Re-seed Database Matches
+              </button>
+              <button
+                type="button"
+                onClick={handleRecalculateAllPoints}
+                disabled={isSubmitting}
+                className="bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/25 font-bold py-2.5 px-4 rounded-xl text-xs transition duration-300 cursor-pointer disabled:opacity-50"
+              >
+                🧮 Recalculate Standings
               </button>
             </div>
           </div>
@@ -1142,6 +1461,7 @@ export default function AdminDashboard() {
                 className="w-full bg-[#0A0E1A] border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-[#F5C518]"
               >
                 <option value="GROUP_STAGE">Group Stage</option>
+                <option value="Round of 32">Round of 32</option>
                 <option value="ROUND_OF_16">Round of 16</option>
                 <option value="QUARTER_FINALS">Quarter Finals</option>
                 <option value="SEMI_FINALS">Semi Finals</option>
@@ -1211,7 +1531,44 @@ export default function AdminDashboard() {
                   {/* Expanded Predictions Area */}
                   {selectedUser === player.id && (
                     <div className="bg-black/25 border-t border-white/5 p-6 space-y-4">
-                      <h4 className="text-xs font-bold text-white uppercase tracking-widest font-mono flex items-center gap-2 border-b border-white/5 pb-2">
+                      {/* Manual Point Adjustment */}
+                      <div className="bg-[#111827] border border-white/5 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div>
+                          <h5 className="text-xs font-bold text-white uppercase tracking-wider font-mono">Manual Point Adjustment</h5>
+                          <p className="text-[10px] text-gray-400 mt-1">Add positive or negative adjustment points (e.g. to restore lost points from the confirmation bug) to this user's total.</p>
+                        </div>
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                          <input 
+                            type="number"
+                            placeholder="Adjustment (e.g. 15)"
+                            defaultValue={player.bonusPoints || 0}
+                            id={`adjustment-input-${player.id}`}
+                            className="bg-[#05091A] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white w-full sm:w-28 focus:outline-none focus:border-[#F5C518]/50"
+                          />
+                          <button
+                            onClick={async () => {
+                              const input = document.getElementById(`adjustment-input-${player.id}`);
+                              const val = parseInt(input.value) || 0;
+                              setIsSubmitting(true);
+                              try {
+                                const userRef = doc(db, 'users', player.id);
+                                await updateDoc(userRef, { bonusPoints: val });
+                                await callRecalculateAllPoints();
+                                setSuccessMessage(`✅ Standings points successfully adjusted for ${player.name}!`);
+                              } catch (err) {
+                                setAdminError(err.message || 'Failed to adjust points.');
+                              } finally {
+                                setIsSubmitting(false);
+                              }
+                            }}
+                            className="btn-primary rounded-lg px-4 py-1.5 text-xs font-bold whitespace-nowrap"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      </div>
+
+                      <h4 className="text-xs font-bold text-white uppercase tracking-widest font-mono flex items-center gap-2 border-b border-white/5 pb-2 pt-2">
                         <Users className="w-4 h-4 text-[#F5C518]" />
                         <span>PREDICTIONS AUDIT</span>
                       </h4>
@@ -1540,6 +1897,7 @@ export default function AdminDashboard() {
                       className="w-full bg-[#0A0E1A] border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-[#F5C518]"
                     >
                       <option value="GROUP_STAGE">Group Stage</option>
+                      <option value="Round of 32">Round of 32</option>
                       <option value="ROUND_OF_16">Round of 16</option>
                       <option value="QUARTER_FINALS">Quarter Finals</option>
                       <option value="SEMI_FINALS">Semi Finals</option>
@@ -1664,9 +2022,11 @@ export default function AdminDashboard() {
                 <select
                   value={selectedPlayerTeam}
                   onChange={(e) => {
-                    setSelectedPlayerTeam(e.target.value);
+                    const team = e.target.value;
+                    setSelectedPlayerTeam(team);
                     setEditingPlayer(null);
                     setIsAddingNewPlayer(false);
+                    setSquadPlayers(squadData[team] || []);
                   }}
                   className="w-full bg-[#0A0E1A] border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-[#F5C518]"
                 >
@@ -1677,6 +2037,40 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
+              {selectedPlayerTeam && (
+                <div className="flex items-center justify-between bg-black/30 border border-white/5 p-4 rounded-xl text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 font-mono">Status:</span>
+                    {eliminatedTeams.includes(selectedPlayerTeam) ? (
+                      <span className="text-red-400 font-bold flex items-center gap-1">🔴 Eliminated Team</span>
+                    ) : (
+                      <span className="text-green-400 font-bold flex items-center gap-1">🟢 Active Team</span>
+                    )}
+                  </div>
+                  <div>
+                    {eliminatedTeams.includes(selectedPlayerTeam) ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRestoreTeam(selectedPlayerTeam)}
+                        disabled={isSubmitting}
+                        className="bg-green-600/20 hover:bg-green-600 border border-green-500/30 text-green-400 hover:text-white font-bold py-1.5 px-3 rounded-lg text-xs transition cursor-pointer"
+                      >
+                        Restore Team
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleEliminateTeam(selectedPlayerTeam)}
+                        disabled={isSubmitting}
+                        className="bg-red-600/20 hover:bg-red-600 border border-red-500/30 text-red-400 hover:text-white font-bold py-1.5 px-3 rounded-lg text-xs transition cursor-pointer"
+                      >
+                        Eliminate Team & Delete Players
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {selectedPlayerTeam && !editingPlayer && !isAddingNewPlayer && (
                 <div className="border border-white/5 bg-black/20 rounded-xl p-4">
                   <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-4 select-none">
@@ -1684,15 +2078,15 @@ export default function AdminDashboard() {
                       {selectedPlayerTeam} Squad list
                     </span>
                     <span className="text-[10px] text-gray-400 bg-white/5 border border-white/10 px-2 py-0.5 rounded font-bold font-mono">
-                      {(squadData[selectedPlayerTeam] || []).length} Players
+                      {squadPlayers.length} Players
                     </span>
                   </div>
 
-                  {(squadData[selectedPlayerTeam] || []).length === 0 ? (
+                  {squadPlayers.length === 0 ? (
                     <p className="text-gray-500 text-xs italic py-4 text-center">No players registered. Click Add New Player to start.</p>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {squadData[selectedPlayerTeam].map((player, idx) => (
+                      {squadPlayers.map((player, idx) => (
                         <div
                           key={`${player.name}_${idx}`}
                           className="bg-[#111827] border border-white/5 rounded-xl p-4 flex items-center justify-between transition-all hover:border-white/10"
@@ -1716,13 +2110,23 @@ export default function AdminDashboard() {
                               </span>
                             </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleEditPlayerClick(player)}
-                            className="text-[#F5C518] hover:text-amber-400 text-xs font-extrabold cursor-pointer border-none bg-transparent hover:bg-[#F5C518]/10 px-2.5 py-1.5 rounded-lg transition"
-                          >
-                            Edit
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleEditPlayerClick(player)}
+                              className="text-[#F5C518] hover:text-amber-400 text-xs font-extrabold cursor-pointer border-none bg-transparent hover:bg-[#F5C518]/10 px-2.5 py-1.5 rounded-lg transition"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePlayerClick(player)}
+                              className="text-red-400 hover:text-red-500 text-xs font-extrabold cursor-pointer border-none bg-transparent hover:bg-red-500/10 px-2.5 py-1.5 rounded-lg transition flex items-center gap-1"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete</span>
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

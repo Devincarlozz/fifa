@@ -135,7 +135,7 @@ const INITIAL_USERS = [
   {
     uid: "mock_user_admin",
     name: "Prof. Raj (Admin)",
-    email: "admin@rit.ac.in",
+    email: "admin@example.com",
     photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=Raj",
     totalPoints: 0,
     predictionsCount: 0,
@@ -257,7 +257,7 @@ export const registerUser = (userData) => {
     totalPoints: 0,
     predictionsCount: 0,
     isActive: true,
-    isAdmin: userData.email === "admin@rit.ac.in",
+    isAdmin: !!(userData.email && userData.email.toLowerCase().startsWith("admin@")),
     createdAt: new Date().toISOString()
   };
   

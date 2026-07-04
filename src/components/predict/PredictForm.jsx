@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../context/AuthContext';
-import { ArrowLeft, AlertTriangle, CheckCircle2, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, CheckCircle2, ChevronUp, ChevronDown, Award } from 'lucide-react';
 import { squadData } from '../../utils/tournamentData';
 
 function PlayerCard({ player, isSelected, onClick, disabled }) {
@@ -41,7 +41,7 @@ function PlayerCard({ player, isSelected, onClick, disabled }) {
 export default function PredictForm() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const matchId = searchParams.get('matchId') || 'wc2026_002';
+  const [activeMatchId, setActiveMatchId] = useState(searchParams.get('matchId') || '');
   const navigate = useNavigate();
 
   const [match, setMatch] = useState(null);
@@ -62,6 +62,21 @@ export default function PredictForm() {
   const [countdownText, setCountdownText] = useState('');
   const [isLocked, setIsLocked] = useState(false);
 
+  // Tournament Awards States
+  const [showAwardsSection, setShowAwardsSection] = useState(false);
+  const [awardsLocked, setAwardsLocked] = useState(false);
+  const [awardsLoading, setAwardsLoading] = useState(true);
+  const [awardsSaving, setAwardsSaving] = useState(false);
+  const [predictedPOTT, setPredictedPOTT] = useState('');
+  const [predictedGoldenBoot, setPredictedGoldenBoot] = useState('');
+  const [predictedGoldenGlove, setPredictedGoldenGlove] = useState('');
+  const [pottSearch, setPottSearch] = useState('');
+  const [bootSearch, setBootSearch] = useState('');
+  const [gloveSearch, setGloveSearch] = useState('');
+  const [pottFocus, setPottFocus] = useState(false);
+  const [bootFocus, setBootFocus] = useState(false);
+  const [gloveFocus, setGloveFocus] = useState(false);
+
   const fallbackHomeSquad = [
     { name: 'Kylian Mbappé', position: 'Forward' },
     { name: 'Antoine Griezmann', position: 'Midfielder' },
@@ -78,6 +93,51 @@ export default function PredictForm() {
     { name: 'İlkay Gündoğan', position: 'Midfielder' }
   ];
 
+  // Flat list of all tournament players for dynamic awards suggestions
+  const allGlobalPlayers = React.useMemo(() => {
+    const list = [];
+    Object.entries(squadData).forEach(([country, players]) => {
+      players.forEach(p => {
+        list.push({
+          name: p.name,
+          team: country,
+          position: p.position || 'Player',
+          number: p.number
+        });
+      });
+    });
+    return list;
+  }, []);
+
+  const pottSuggestions = React.useMemo(() => {
+    if (!pottSearch || pottSearch.trim().length < 2) return [];
+    if (predictedPOTT && pottSearch === predictedPOTT) return [];
+    return allGlobalPlayers.filter(p => 
+      p.name.toLowerCase().includes(pottSearch.toLowerCase()) || 
+      p.team.toLowerCase().includes(pottSearch.toLowerCase())
+    ).slice(0, 8);
+  }, [pottSearch, allGlobalPlayers, predictedPOTT]);
+
+  const bootSuggestions = React.useMemo(() => {
+    if (!bootSearch || bootSearch.trim().length < 2) return [];
+    if (predictedGoldenBoot && bootSearch === predictedGoldenBoot) return [];
+    return allGlobalPlayers.filter(p => 
+      p.name.toLowerCase().includes(bootSearch.toLowerCase()) || 
+      p.team.toLowerCase().includes(bootSearch.toLowerCase())
+    ).slice(0, 8);
+  }, [bootSearch, allGlobalPlayers, predictedGoldenBoot]);
+
+  const gloveSuggestions = React.useMemo(() => {
+    if (!gloveSearch || gloveSearch.trim().length < 2) return [];
+    if (predictedGoldenGlove && gloveSearch === predictedGoldenGlove) return [];
+    return allGlobalPlayers.filter(p => 
+      p.position === 'GK' && (
+        p.name.toLowerCase().includes(gloveSearch.toLowerCase()) || 
+        p.team.toLowerCase().includes(gloveSearch.toLowerCase())
+      )
+    ).slice(0, 8);
+  }, [gloveSearch, allGlobalPlayers, predictedGoldenGlove]);
+
   // Format Date to IST
   const formatKickoffIST = (kickoffTime) => {
     const kickoff = kickoffTime?.toDate ? kickoffTime.toDate() : new Date(kickoffTime);
@@ -88,7 +148,15 @@ export default function PredictForm() {
     }) + ' IST';
   };
 
-  // Fetch match, prediction, and squads
+  // Sync SearchParam changes to state
+  useEffect(() => {
+    const paramId = searchParams.get('matchId');
+    if (paramId) {
+      setActiveMatchId(paramId);
+    }
+  }, [searchParams]);
+
+  // Fetch match, prediction, squads, and awards prediction
   useEffect(() => {
     if (!user) {
       setLoading(false);
@@ -103,7 +171,38 @@ export default function PredictForm() {
           return;
         }
 
-        const matchRef = doc(db, 'matches', matchId);
+        let currentMatchId = activeMatchId;
+
+        // Auto-resolve featured match if no query parameter supplied
+        if (!currentMatchId) {
+          const matchesRef = collection(db, 'matches');
+          const matchesSnap = await getDocs(matchesRef);
+          const list = [];
+          matchesSnap.forEach(doc => {
+            list.push({ id: doc.id, ...doc.data() });
+          });
+
+          list.sort((a, b) => {
+            const tA = a.kickoffTime?.toDate ? a.kickoffTime.toDate() : new Date(a.kickoffTime);
+            const tB = b.kickoffTime?.toDate ? b.kickoffTime.toDate() : new Date(b.kickoffTime);
+            return tA - tB;
+          });
+
+          const live = list.filter(m => m.status === 'IN_PLAY' || m.status === 'PAUSED' || m.status === 'LIVE');
+          const upcoming = list.filter(m => m.status === 'SCHEDULED');
+          const finished = list.filter(m => m.status === 'FINISHED' || m.status === 'CONFIRMED' || m.confirmed);
+
+          const featured = live[0] || upcoming[0] || finished[0] || null;
+          if (featured) {
+            currentMatchId = featured.id;
+            setActiveMatchId(featured.id);
+          } else {
+            currentMatchId = 'wc2026_002'; // Fallback
+            setActiveMatchId('wc2026_002');
+          }
+        }
+
+        const matchRef = doc(db, 'matches', currentMatchId);
         const matchSnap = await getDoc(matchRef);
 
         if (!matchSnap.exists()) {
@@ -141,7 +240,7 @@ export default function PredictForm() {
 
         // Fetch existing prediction
         if (user.isMock || !db) {
-          const mockPredStr = localStorage.getItem(`mock_pred_${user.uid}_${matchId}`);
+          const mockPredStr = localStorage.getItem(`mock_pred_${user.uid}_${currentMatchId}`);
           if (mockPredStr) {
             const predData = JSON.parse(mockPredStr);
             setHomeGoals(parseInt(predData.homeGoals) ?? 2);
@@ -150,7 +249,7 @@ export default function PredictForm() {
             setPredictedPenaltyWinner(predData.predictedPenaltyWinner || '');
           }
         } else {
-          const predId = `${user.uid}_${matchId}`;
+          const predId = `${user.uid}_${currentMatchId}`;
           const predRef = doc(db, 'predictions', predId);
           const predSnap = await getDoc(predRef);
 
@@ -160,18 +259,80 @@ export default function PredictForm() {
             setAwayGoals(parseInt(predData.awayGoals) ?? 1);
             setManOfTheMatch(predData.manOfTheMatch || '');
             setPredictedPenaltyWinner(predData.predictedPenaltyWinner || '');
+          } else {
+            // Reset to defaults if no prediction exists
+            setHomeGoals(2);
+            setAwayGoals(1);
+            setManOfTheMatch('');
+            setPredictedPenaltyWinner('');
           }
         }
+
+        // --- Fetch & Check Knockout Awards predictions ---
+        const matchesRef = collection(db, 'matches');
+        const matchesSnap = await getDocs(matchesRef);
+        const matchesList = [];
+        matchesSnap.forEach(d => {
+          matchesList.push(d.data());
+        });
+
+        const knockoutMatches = matchesList.filter(m => m.stage && m.stage !== 'GROUP_STAGE');
+        const hasKnockouts = knockoutMatches.length > 0;
+        setShowAwardsSection(hasKnockouts);
+
+        if (hasKnockouts) {
+          let earliestKnockTime = null;
+          knockoutMatches.forEach(m => {
+            if (m.kickoffTime) {
+              const time = m.kickoffTime.toDate ? m.kickoffTime.toDate() : new Date(m.kickoffTime);
+              if (!earliestKnockTime || time < earliestKnockTime) {
+                earliestKnockTime = time;
+              }
+            }
+          });
+
+          if (earliestKnockTime && new Date() >= earliestKnockTime) {
+            setAwardsLocked(true);
+          }
+
+          // Load User's Awards prediction
+          if (user.isMock || !db) {
+            const mockAwardsStr = localStorage.getItem(`mock_awards_${user.uid}`);
+            if (mockAwardsStr) {
+              const aData = JSON.parse(mockAwardsStr);
+              setPredictedPOTT(aData.pott || '');
+              setPredictedGoldenBoot(aData.goldenBoot || '');
+              setPredictedGoldenGlove(aData.goldenGlove || '');
+              setPottSearch(aData.pott || '');
+              setBootSearch(aData.goldenBoot || '');
+              setGloveSearch(aData.goldenGlove || '');
+            }
+          } else {
+            const awardsRef = doc(db, 'awards_predictions', user.uid);
+            const awardsSnap = await getDoc(awardsRef);
+            if (awardsSnap.exists()) {
+              const aData = awardsSnap.data();
+              setPredictedPOTT(aData.pott || '');
+              setPredictedGoldenBoot(aData.goldenBoot || '');
+              setPredictedGoldenGlove(aData.goldenGlove || '');
+              setPottSearch(aData.pott || '');
+              setBootSearch(aData.goldenBoot || '');
+              setGloveSearch(aData.goldenGlove || '');
+            }
+          }
+        }
+
       } catch (err) {
         console.error("Error loading prediction data:", err);
         setError("Failed to load match configuration.");
       } finally {
         setLoading(false);
+        setAwardsLoading(false);
       }
     }
 
     loadPredictData();
-  }, [matchId, user]);
+  }, [activeMatchId, user]);
 
   // Countdown timer & Auto-locking
   useEffect(() => {
@@ -183,26 +344,8 @@ export default function PredictForm() {
       const diff = kickoff.getTime() - now.getTime();
 
       if (diff <= 0) {
-        setCountdownText('🔒 Predictions Locked');
-        if (!isLocked) {
-          setIsLocked(true);
-          // Auto lock: write to Firestore
-          if (user && db) {
-            const predId = `${user.uid}_${matchId}`;
-            try {
-              const predRef = doc(db, 'predictions', predId);
-              await setDoc(predRef, {
-                id: predId,
-                userId: user.uid,
-                matchId: matchId,
-                isLocked: true,
-                submittedAt: new Date().toISOString()
-              }, { merge: true });
-            } catch (err) {
-              console.error("Failed to auto-lock prediction in Firestore:", err);
-            }
-          }
-        }
+        setCountdownText('⏳ Submissions Open (Extended)');
+        setIsLocked(false);
       } else {
         const diffHours = diff / (1000 * 60 * 60);
         if (diffHours > 24) {
@@ -222,10 +365,49 @@ export default function PredictForm() {
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [match, isLocked, user, matchId]);
+  }, [match, isLocked, user, activeMatchId]);
 
   const handleSelectPlayer = (player) => {
     setManOfTheMatch(player.name);
+  };
+
+  const handleSaveAwards = async (e) => {
+    e.preventDefault();
+    if (awardsLocked) {
+      alert("⚠️ Awards predictions are locked!");
+      return;
+    }
+    if (!predictedPOTT || !predictedGoldenBoot || !predictedGoldenGlove) {
+      alert("⚠️ Please choose your predictions for all 3 awards before saving.");
+      return;
+    }
+
+    setAwardsSaving(true);
+    try {
+      const payload = {
+        userId: user.uid,
+        userName: user.displayName || user.name || 'Anonymous',
+        userEmail: user.email,
+        pott: predictedPOTT,
+        goldenBoot: predictedGoldenBoot,
+        goldenGlove: predictedGoldenGlove,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (user.isMock || !db) {
+        localStorage.setItem(`mock_awards_${user.uid}`, JSON.stringify(payload));
+        alert("🎉 Tournament Awards predictions saved locally!");
+      } else {
+        const docRef = doc(db, 'awards_predictions', user.uid);
+        await setDoc(docRef, payload);
+        alert("🎉 Tournament Awards predictions saved successfully!");
+      }
+    } catch (err) {
+      console.error(err);
+      alert(`⚠️ Failed to save awards: ${err.message}`);
+    } finally {
+      setAwardsSaving(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -261,12 +443,12 @@ export default function PredictForm() {
     setSuccess(false);
 
     try {
-      const predId = `${user.uid}_${matchId}`;
+      const predId = `${user.uid}_${activeMatchId}`;
       
       const predictionDoc = {
         id: predId,
         userId: user.uid,
-        matchId: matchId,
+        matchId: activeMatchId,
         homeGoals: isNaN(parseInt(homeGoals)) ? 0 : parseInt(homeGoals),
         awayGoals: isNaN(parseInt(awayGoals)) ? 0 : parseInt(awayGoals),
         manOfTheMatch,
@@ -277,7 +459,7 @@ export default function PredictForm() {
       };
 
       if (user.isMock || !db) {
-        localStorage.setItem(`mock_pred_${user.uid}_${matchId}`, JSON.stringify(predictionDoc));
+        localStorage.setItem(`mock_pred_${user.uid}_${activeMatchId}`, JSON.stringify(predictionDoc));
         setSuccess(true);
         setTimeout(() => {
           navigate('/');
@@ -297,6 +479,24 @@ export default function PredictForm() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const selectPOTT = (p) => {
+    const val = `${p.name} (${p.team})`;
+    setPredictedPOTT(val);
+    setPottSearch(val);
+  };
+  
+  const selectBoot = (p) => {
+    const val = `${p.name} (${p.team})`;
+    setPredictedGoldenBoot(val);
+    setBootSearch(val);
+  };
+
+  const selectGlove = (p) => {
+    const val = `${p.name} (${p.team})`;
+    setPredictedGoldenGlove(val);
+    setGloveSearch(val);
   };
 
   const filteredHomeSquad = (homeSquad.length > 0 ? homeSquad : fallbackHomeSquad).filter(p =>
@@ -725,6 +925,168 @@ export default function PredictForm() {
         </div>
 
       </form>
+
+      {showAwardsSection && (
+        <div className="max-w-4xl mx-auto mt-10 border border-white/10 bg-[#0F1520] p-6 sm:p-8 rounded-3xl shadow-2xl space-y-6 relative">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(245,197,24,0.05),transparent_70%)] pointer-events-none" />
+          
+          <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+            <div className="w-10 h-10 rounded-full bg-[#F5C518]/10 border border-[#F5C518]/25 flex items-center justify-center text-[#F5C518]">
+              <Award className="w-5 h-5" />
+            </div>
+            <div className="text-left">
+              <h3 className="text-lg font-black text-white uppercase tracking-wider font-display">
+                🏆 Tournament Awards Predictions
+              </h3>
+              <p className="text-[10px] text-[#F5C518] font-bold uppercase tracking-wider mt-0.5">
+                Earn +3 points for each correct pick!
+              </p>
+            </div>
+          </div>
+
+          {awardsLoading ? (
+            <div className="flex justify-center items-center py-6">
+              <div className="w-8 h-8 border-3 border-[#F5C518] border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <form onSubmit={handleSaveAwards} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                {/* 1. Player of the Tournament */}
+                <div className="relative text-left">
+                  <label className="block text-[11px] font-extrabold text-[#F5C518] uppercase tracking-wider mb-1.5 font-mono">
+                    Player of the Tournament
+                  </label>
+                  <p className="text-[9px] text-gray-500 mb-2 leading-tight">Predict the best overall player of the World Cup.</p>
+                  <input
+                    type="text"
+                    value={pottSearch}
+                    onChange={(e) => setPottSearch(e.target.value)}
+                    onFocus={() => setPottFocus(true)}
+                    onBlur={() => setTimeout(() => setPottFocus(false), 250)}
+                    disabled={awardsLocked || awardsSaving}
+                    placeholder="Search player..."
+                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl p-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#F5C518] transition"
+                  />
+                  {pottFocus && pottSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 mt-1 bg-[#161D2B] border border-white/10 rounded-xl max-h-48 overflow-y-auto z-50 shadow-2xl">
+                      {pottSuggestions.map((p, i) => (
+                        <div
+                          key={i}
+                          onMouseDown={() => selectPOTT(p)}
+                          className="p-2.5 text-xs text-white hover:bg-[#F5C518]/10 cursor-pointer border-b border-white/5 flex items-center justify-between"
+                        >
+                          <span className="font-semibold">{p.name}</span>
+                          <span className="text-[9px] text-gray-400 font-mono uppercase bg-white/5 px-1.5 py-0.5 rounded">{p.team} • {p.position}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {predictedPOTT && (
+                    <div className="mt-2 text-[10px] text-green-400 font-semibold flex items-center gap-1">
+                      <span>✓ Selected:</span>
+                      <span className="text-white">{predictedPOTT}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Golden Boot Winner */}
+                <div className="relative text-left">
+                  <label className="block text-[11px] font-extrabold text-[#F5C518] uppercase tracking-wider mb-1.5 font-mono">
+                    Golden Boot Winner
+                  </label>
+                  <p className="text-[9px] text-gray-500 mb-2 leading-tight">Predict the top goalscorer of the tournament.</p>
+                  <input
+                    type="text"
+                    value={bootSearch}
+                    onChange={(e) => setBootSearch(e.target.value)}
+                    onFocus={() => setBootFocus(true)}
+                    onBlur={() => setTimeout(() => setBootFocus(false), 250)}
+                    disabled={awardsLocked || awardsSaving}
+                    placeholder="Search player..."
+                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl p-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#F5C518] transition"
+                  />
+                  {bootFocus && bootSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 mt-1 bg-[#161D2B] border border-white/10 rounded-xl max-h-48 overflow-y-auto z-50 shadow-2xl">
+                      {bootSuggestions.map((p, i) => (
+                        <div
+                          key={i}
+                          onMouseDown={() => selectBoot(p)}
+                          className="p-2.5 text-xs text-white hover:bg-[#F5C518]/10 cursor-pointer border-b border-white/5 flex items-center justify-between"
+                        >
+                          <span className="font-semibold">{p.name}</span>
+                          <span className="text-[9px] text-gray-400 font-mono uppercase bg-white/5 px-1.5 py-0.5 rounded">{p.team} • {p.position}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {predictedGoldenBoot && (
+                    <div className="mt-2 text-[10px] text-green-400 font-semibold flex items-center gap-1">
+                      <span>✓ Selected:</span>
+                      <span className="text-white">{predictedGoldenBoot}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Golden Glove Winner */}
+                <div className="relative text-left">
+                  <label className="block text-[11px] font-extrabold text-[#F5C518] uppercase tracking-wider mb-1.5 font-mono">
+                    Golden Glove Winner
+                  </label>
+                  <p className="text-[9px] text-gray-500 mb-2 leading-tight">Predict the best goalkeeper of the tournament.</p>
+                  <input
+                    type="text"
+                    value={gloveSearch}
+                    onChange={(e) => setGloveSearch(e.target.value)}
+                    onFocus={() => setGloveFocus(true)}
+                    onBlur={() => setTimeout(() => setGloveFocus(false), 250)}
+                    disabled={awardsLocked || awardsSaving}
+                    placeholder="Search GK..."
+                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl p-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#F5C518] transition"
+                  />
+                  {gloveFocus && gloveSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 mt-1 bg-[#161D2B] border border-white/10 rounded-xl max-h-48 overflow-y-auto z-50 shadow-2xl">
+                      {gloveSuggestions.map((p, i) => (
+                        <div
+                          key={i}
+                          onMouseDown={() => selectGlove(p)}
+                          className="p-2.5 text-xs text-white hover:bg-[#F5C518]/10 cursor-pointer border-b border-white/5 flex items-center justify-between"
+                        >
+                          <span className="font-semibold">{p.name}</span>
+                          <span className="text-[9px] text-gray-400 font-mono uppercase bg-white/5 px-1.5 py-0.5 rounded">{p.team} • GK</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {predictedGoldenGlove && (
+                    <div className="mt-2 text-[10px] text-green-400 font-semibold flex items-center gap-1">
+                      <span>✓ Selected:</span>
+                      <span className="text-white">{predictedGoldenGlove}</span>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+              {awardsLocked ? (
+                <div className="p-3 bg-red-950/20 border border-red-500/25 rounded-xl text-red-400 text-xs text-center font-mono">
+                  🔒 Predictions are locked because the first knockout match kickoff has passed.
+                </div>
+              ) : (
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={awardsSaving}
+                    className="bg-[#F5C518] hover:bg-amber-400 text-black font-extrabold py-2.5 px-6 rounded-xl text-xs uppercase tracking-wider transition border-none shadow-[0_0_15px_rgba(245,197,24,0.15)] cursor-pointer"
+                  >
+                    {awardsSaving ? 'Saving...' : 'Save Awards Predictions'}
+                  </button>
+                </div>
+              )}
+            </form>
+          )}
+        </div>
+      )}
     </div>
   );
 }

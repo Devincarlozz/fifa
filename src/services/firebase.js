@@ -2,6 +2,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { initializeFirestore } from "firebase/firestore";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -18,6 +19,7 @@ let app;
 let auth;
 let db;
 let googleProvider;
+let functions;
 
 if (isFirebaseConfigured) {
   try {
@@ -28,9 +30,10 @@ if (isFirebaseConfigured) {
       experimentalForceLongPolling: true,
     });
     googleProvider = new GoogleAuthProvider();
+    functions = getFunctions(app);
   } catch (error) {
     console.error("Firebase initialization failed:", error);
   }
 }
 
-export { app, auth, db, googleProvider, isFirebaseConfigured };
+export { app, auth, db, googleProvider, functions, isFirebaseConfigured };

@@ -114,7 +114,7 @@ export default function AdminLoginPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@rit.ac.in"
+                  placeholder="admin@yourdomain.com"
                   className="w-full bg-[#0A0E1A] border border-white/10 rounded-xl p-3 pl-10 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-red-500 transition font-sans"
                 />
                 <Lock className="w-4 h-4 text-gray-600 absolute left-3.5 top-3.5" />

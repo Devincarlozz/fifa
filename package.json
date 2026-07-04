@@ -1,12 +1,12 @@
 {
   "name": "fifa-predictor",
   "private": true,
-  "version": "1.0.80",
+  "version": "1.0.96",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "npm version patch --no-git-tag-version && vite build",
-    "deploy": "npm run build && npx wrangler pages deploy dist --branch main",
+    "deploy": "npm run build && npx wrangler pages deploy . --project-name=fifapredicton2026 --branch=main --cwd=dist --commit-dirty=true",
     "lint": "eslint .",
     "preview": "vite preview"
   },
