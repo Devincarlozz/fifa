@@ -8,8 +8,6 @@ import FifaTrophy from '../dashboard/FifaTrophy';
 const features = [
   { icon: Target, label: 'Predict Matches', desc: 'Score predictions, man of the match, and more.' },
   { icon: Star, label: 'Earn Points', desc: '+5 exact score · +2 correct outcome · +3 MOTM' },
-  { icon: Trophy, label: 'Climb the Ranks', desc: 'Compete on the global leaderboard.' },
-  { icon: Globe, label: 'Global Competition', desc: 'Challenge fans from around the world.' },
 ];
 
 export default function LoginPage() {
@@ -101,21 +99,7 @@ export default function LoginPage() {
             ))}
           </div>
 
-          {/* Live stat pills */}
-          <div style={{ display: 'flex', gap: 12 }}>
-            {[['64', 'Teams'], ['48', 'Matches'], ['100M+', 'Fans']].map(([num, label]) => (
-              <div key={label} style={{
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.07)',
-                borderRadius: 12,
-                padding: '10px 16px',
-                textAlign: 'center'
-              }}>
-                <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: 22, fontWeight: 800, color: '#F5C518' }}>{num}</div>
-                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#64748B', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{label}</div>
-              </div>
-            ))}
-          </div>
+
         </div>
 
         {/* RIGHT — Login Card */}

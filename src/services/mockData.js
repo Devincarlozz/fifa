@@ -115,8 +115,8 @@ const INITIAL_USERS = [
     name: "Aryan Kumar",
     email: "aryan@rit.ac.in",
     photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=Aryan",
-    totalPoints: 94,
-    predictionsCount: 18,
+    totalPoints: 0,
+    predictionsCount: 0,
     isActive: true,
     isAdmin: false,
     createdAt: new Date().toISOString()
@@ -126,8 +126,8 @@ const INITIAL_USERS = [
     name: "Priya Sharma",
     email: "priya@rit.ac.in",
     photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=Priya",
-    totalPoints: 78,
-    predictionsCount: 15,
+    totalPoints: 0,
+    predictionsCount: 0,
     isActive: true,
     isAdmin: false,
     createdAt: new Date().toISOString()
@@ -145,92 +145,7 @@ const INITIAL_USERS = [
   }
 ];
 
-const INITIAL_PREDICTIONS = [
-  // Aryan's predictions
-  {
-    id: "mock_user_1_wc2026_002",
-    userId: "mock_user_1",
-    matchId: "wc2026_002",
-    homeGoals: 2,
-    awayGoals: 1,
-    manOfTheMatch: "Vinicius Jr.",
-    bonusAnswer: "Yes",
-    submittedAt: new Date().toISOString(),
-    pointsEarned: null,
-    pointsBreakdown: null
-  },
-  {
-    id: "mock_user_1_wc2026_003",
-    userId: "mock_user_1",
-    matchId: "wc2026_003",
-    homeGoals: 2,
-    awayGoals: 0,
-    manOfTheMatch: "Mbappe",
-    bonusAnswer: "Yes",
-    submittedAt: new Date().toISOString(),
-    pointsEarned: null,
-    pointsBreakdown: null
-  },
-  {
-    id: "mock_user_1_wc2026_004",
-    userId: "mock_user_1",
-    matchId: "wc2026_004",
-    homeGoals: 3,
-    awayGoals: 2, // Exact Score (+5pts)
-    manOfTheMatch: "Musiala", // Correct MOTM (+3pts)
-    bonusAnswer: "Yes", // Correct Bonus (+1pt) -> 9pts total
-    submittedAt: new Date().toISOString(),
-    pointsEarned: 9,
-    pointsBreakdown: {
-      result: 2,
-      exactScore: 3, // additional 3 to reach 5 total for exact score
-      motm: 3,
-      bonus: 1
-    }
-  },
-  // Priya's predictions
-  {
-    id: "mock_user_2_wc2026_002",
-    userId: "mock_user_2",
-    matchId: "wc2026_002",
-    homeGoals: 1,
-    awayGoals: 1,
-    manOfTheMatch: "Messi",
-    bonusAnswer: "No",
-    submittedAt: new Date().toISOString(),
-    pointsEarned: null,
-    pointsBreakdown: null
-  },
-  {
-    id: "mock_user_2_wc2026_003",
-    userId: "mock_user_2",
-    matchId: "wc2026_003",
-    homeGoals: 1,
-    awayGoals: 1, // Exact Score (+5pts)
-    manOfTheMatch: "Kane",
-    bonusAnswer: "Yes",
-    submittedAt: new Date().toISOString(),
-    pointsEarned: null,
-    pointsBreakdown: null
-  },
-  {
-    id: "mock_user_2_wc2026_004",
-    userId: "mock_user_2",
-    matchId: "wc2026_004",
-    homeGoals: 1,
-    awayGoals: 2, // Wrong result (0 pts)
-    manOfTheMatch: "Musiala", // Correct MOTM (+3pts)
-    bonusAnswer: "Yes", // Correct Bonus (+1pt) -> 4pts total
-    submittedAt: new Date().toISOString(),
-    pointsEarned: 4,
-    pointsBreakdown: {
-      result: 0,
-      exactScore: 0,
-      motm: 3,
-      bonus: 1
-    }
-  }
-];
+const INITIAL_PREDICTIONS = [];
 
 // Helper to initialize local storage
 const initStorage = () => {

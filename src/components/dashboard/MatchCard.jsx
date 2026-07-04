@@ -5,7 +5,7 @@ import { formatMatchTime, isKickoffPassed } from '../../utils/dateUtils';
 export default function MatchCard({ match, prediction }) {
   if (!match) return null;
 
-  const { id, matchId, homeTeam, awayTeam, kickoffTime, stage, venue, status, liveScore, confirmed } = match;
+  const { id, matchId, homeTeam, awayTeam, kickoffTime, stage, venue, status, liveScore, confirmed, confirmedResult } = match;
   const actualMatchId = id || matchId;
   const locked = isKickoffPassed(kickoffTime);
   const isLive = status === 'IN_PLAY' || status === 'PAUSED' || status === 'LIVE';
@@ -126,7 +126,7 @@ export default function MatchCard({ match, prediction }) {
               borderRadius: 8, padding: '4px 12px',
               letterSpacing: '0.04em'
             }}>
-              {liveScore?.home ?? 0}–{liveScore?.away ?? 0}
+              {confirmedResult?.homeGoals ?? liveScore?.home ?? 0}–{confirmedResult?.awayGoals ?? liveScore?.away ?? 0}
             </div>
           ) : (
             <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.1em' }}>VS</span>
@@ -182,35 +182,50 @@ export default function MatchCard({ match, prediction }) {
               justifyContent: 'center',
               gap: 6,
               background: prediction
-                ? 'rgba(245,197,24,0.06)'
-                : 'linear-gradient(135deg, rgba(245,197,24,0.18) 0%, rgba(245,197,24,0.08) 100%)',
-              border: '1px solid rgba(245,197,24,0.3)',
+                ? 'rgba(255, 255, 255, 0.03)'
+                : 'linear-gradient(135deg, #F5C518 0%, #FFD700 50%, #E5A800 100%)',
+              border: prediction
+                ? '1px solid rgba(245, 197, 24, 0.3)'
+                : '1px solid #F5C518',
               borderRadius: 12,
-              padding: '10px 18px',
-              color: '#F5C518',
+              padding: '11px 18px',
+              color: prediction ? '#CBD5E1' : '#05091A',
               fontFamily: 'Outfit, sans-serif',
-              fontWeight: 700,
+              fontWeight: 800,
               fontSize: 11,
               letterSpacing: '0.12em',
               textDecoration: 'none',
               textTransform: 'uppercase',
-              transition: 'all 0.2s ease',
-              boxShadow: '0 2px 12px rgba(245,197,24,0.08)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: prediction
+                ? '0 2px 8px rgba(0, 0, 0, 0.2)'
+                : '0 4px 18px rgba(245, 197, 24, 0.35)',
               width: '100%',
+              transform: 'scale(1)'
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.background = 'linear-gradient(135deg, #F5C518 0%, #E5A800 100%)';
-              e.currentTarget.style.color = '#05091A';
-              e.currentTarget.style.boxShadow = '0 4px 20px rgba(245,197,24,0.35)';
+              e.currentTarget.style.transform = 'scale(1.03)';
+              e.currentTarget.style.background = prediction
+                ? 'rgba(245, 197, 24, 0.1)'
+                : 'linear-gradient(135deg, #FFD700 0%, #F5C518 100%)';
+              e.currentTarget.style.color = prediction ? '#F5C518' : '#05091A';
+              e.currentTarget.style.boxShadow = prediction
+                ? '0 4px 16px rgba(245, 197, 24, 0.25)'
+                : '0 6px 24px rgba(245, 197, 24, 0.55)';
               e.currentTarget.style.borderColor = '#F5C518';
             }}
             onMouseLeave={e => {
+              e.currentTarget.style.transform = 'scale(1)';
               e.currentTarget.style.background = prediction
-                ? 'rgba(245,197,24,0.06)'
-                : 'linear-gradient(135deg, rgba(245,197,24,0.18) 0%, rgba(245,197,24,0.08) 100%)';
-              e.currentTarget.style.color = '#F5C518';
-              e.currentTarget.style.boxShadow = '0 2px 12px rgba(245,197,24,0.08)';
-              e.currentTarget.style.borderColor = 'rgba(245,197,24,0.3)';
+                ? 'rgba(255, 255, 255, 0.03)'
+                : 'linear-gradient(135deg, #F5C518 0%, #FFD700 50%, #E5A800 100%)';
+              e.currentTarget.style.color = prediction ? '#CBD5E1' : '#05091A';
+              e.currentTarget.style.boxShadow = prediction
+                ? '0 2px 8px rgba(0, 0, 0, 0.2)'
+                : '0 4px 18px rgba(245, 197, 24, 0.35)';
+              e.currentTarget.style.borderColor = prediction
+                ? 'rgba(245, 197, 24, 0.3)'
+                : '#F5C518';
             }}
           >
             <span>{prediction ? 'Edit Prediction' : 'Predict Now'}</span>

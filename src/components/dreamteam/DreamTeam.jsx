@@ -1644,7 +1644,7 @@ export default function DreamTeam() {
                     <span>+1 PTS</span>
                   </div>
                 </div>
-                <p className="text-amber-400 font-semibold mt-1">⚠️ CRUCIAL: Only players in your Starting XI earn points! Benched players score 0 points even if they are in the Top 10 rankings.</p>
+                <p className="text-green-400 font-semibold mt-1">✨ Both starting players and benched players in your 15-player squad earn points if they are in the Top 10 rankings!</p>
               </div>
             </div>
 

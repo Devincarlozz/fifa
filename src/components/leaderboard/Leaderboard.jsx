@@ -5,16 +5,16 @@ import { useAuth } from '../../context/AuthContext';
 import { Trophy, User, Medal } from 'lucide-react';
 
 const mockLeaderboardPlayers = [
-  { id: "1", uid: "1", name: "Predictor FC", email: "predictor@rit.ac.in", predictionsCount: 12, totalPoints: 2450, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=PredictorFC" },
-  { id: "2", uid: "2", name: "GoalGuru", email: "goalguru@rit.ac.in", predictionsCount: 11, totalPoints: 2150, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=GoalGuru" },
-  { id: "3", uid: "3", name: "PitchMaster", email: "pitch@rit.ac.in", predictionsCount: 10, totalPoints: 1980, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=PitchMaster" },
-  { id: "4", uid: "4", name: "NetBuster", email: "net@rit.ac.in", predictionsCount: 9, totalPoints: 1750, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=NetBuster" },
-  { id: "5", uid: "5", name: "CornerKing", email: "corner@rit.ac.in", predictionsCount: 8, totalPoints: 1620, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=CornerKing" },
-  { id: "6", uid: "6", name: "FootyFanatic", email: "footy@rit.ac.in", predictionsCount: 7, totalPoints: 1480, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=FootyFanatic" },
-  { id: "7", uid: "7", name: "DribbleWizard", email: "dribble@rit.ac.in", predictionsCount: 6, totalPoints: 1350, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=DribbleWizard" },
-  { id: "8", uid: "8", name: "TikiTakaPro", email: "tiki@rit.ac.in", predictionsCount: 5, totalPoints: 1210, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=TikiTakaPro" },
-  { id: "9", uid: "9", name: "StrikeZone", email: "strike@rit.ac.in", predictionsCount: 4, totalPoints: 1150, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=StrikeZone" },
-  { id: "10", uid: "10", name: "TheMoM", email: "mom@rit.ac.in", predictionsCount: 3, totalPoints: 1020, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=TheMoM" },
+  { id: "1", uid: "1", name: "Predictor FC", email: "predictor@rit.ac.in", predictionsCount: 0, totalPoints: 0, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=PredictorFC" },
+  { id: "2", uid: "2", name: "GoalGuru", email: "goalguru@rit.ac.in", predictionsCount: 0, totalPoints: 0, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=GoalGuru" },
+  { id: "3", uid: "3", name: "PitchMaster", email: "pitch@rit.ac.in", predictionsCount: 0, totalPoints: 0, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=PitchMaster" },
+  { id: "4", uid: "4", name: "NetBuster", email: "net@rit.ac.in", predictionsCount: 0, totalPoints: 0, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=NetBuster" },
+  { id: "5", uid: "5", name: "CornerKing", email: "corner@rit.ac.in", predictionsCount: 0, totalPoints: 0, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=CornerKing" },
+  { id: "6", uid: "6", name: "FootyFanatic", email: "footy@rit.ac.in", predictionsCount: 0, totalPoints: 0, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=FootyFanatic" },
+  { id: "7", uid: "7", name: "DribbleWizard", email: "dribble@rit.ac.in", predictionsCount: 0, totalPoints: 0, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=DribbleWizard" },
+  { id: "8", uid: "8", name: "TikiTakaPro", email: "tiki@rit.ac.in", predictionsCount: 0, totalPoints: 0, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=TikiTakaPro" },
+  { id: "9", uid: "9", name: "StrikeZone", email: "strike@rit.ac.in", predictionsCount: 0, totalPoints: 0, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=StrikeZone" },
+  { id: "10", uid: "10", name: "TheMoM", email: "mom@rit.ac.in", predictionsCount: 0, totalPoints: 0, photoURL: "https://api.dicebear.com/7.x/adventurer/svg?seed=TheMoM" },
 ];
 
 const medalConfig = {

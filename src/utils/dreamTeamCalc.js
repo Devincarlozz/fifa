@@ -46,12 +46,10 @@ export function calculateDreamTeamPoints(dreamTeamPlayers, rankings) {
     const isCaptain = player.isCaptain === true;    // default to false
     
     let earnedPts = 0;
-    if (isStarting) {
-      earnedPts = isCaptain ? basePts * 2 : basePts;
-      total += earnedPts;
-      if (breakdown[pos] !== undefined) {
-        breakdown[pos] += earnedPts;
-      }
+    earnedPts = isCaptain ? basePts * 2 : basePts;
+    total += earnedPts;
+    if (breakdown[pos] !== undefined) {
+      breakdown[pos] += earnedPts;
     }
 
     playerPoints.push({

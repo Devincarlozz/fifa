@@ -246,6 +246,11 @@ export default function PredictionHistory() {
                     <span className="block text-[9px] text-gray-500 font-extrabold uppercase tracking-wider mb-1">Your Pick</span>
                     <div className="bg-[#F5C518]/5 border border-[#F5C518]/20 px-3 py-1.5 rounded-xl text-center shadow-[0_0_10px_rgba(245,197,24,0.05)]">
                       <span className="text-base font-display font-black text-[#F5C518]">{pred.homeGoals} — {pred.awayGoals}</span>
+                      {pred.predictedPenaltyWinner && (
+                        <span className="block text-[8px] text-[#F5C518] uppercase tracking-wider font-extrabold mt-0.5">
+                          Pens: {pred.predictedPenaltyWinner === 'home' ? match.homeTeam.code : match.awayTeam.code}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -254,9 +259,16 @@ export default function PredictionHistory() {
                     <span className="block text-[9px] text-gray-500 font-extrabold uppercase tracking-wider mb-1">Actual Result</span>
                     <div className="bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl text-center min-w-[70px]">
                       {isLive || isFinished || isConfirmed ? (
-                        <span className="text-base font-display font-black text-white">
-                          {match.liveScore?.home} — {match.liveScore?.away}
-                        </span>
+                        <>
+                          <span className="text-base font-display font-black text-white">
+                            {match.confirmedResult?.homeGoals ?? match.liveScore?.home} — {match.confirmedResult?.awayGoals ?? match.liveScore?.away}
+                          </span>
+                          {match.confirmedPenaltyScore && (
+                            <span className="block text-[8px] text-gray-400 uppercase tracking-wider font-extrabold mt-0.5">
+                              Pens: {match.confirmedPenaltyScore.home} - {match.confirmedPenaltyScore.away}
+                            </span>
+                          )}
+                        </>
                       ) : (
                         <span className="text-[10px] text-gray-400 font-extrabold uppercase tracking-widest block py-0.5">Scheduled</span>
                       )}
@@ -297,6 +309,7 @@ export default function PredictionHistory() {
                         {hasExact && <span className="text-[8px] bg-green-500/10 text-green-400 border border-green-500/20 px-1 py-0.2 rounded uppercase font-bold">Exact</span>}
                         {hasResult && <span className="text-[8px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1 py-0.2 rounded uppercase font-bold">Outcome</span>}
                         {hasMotm && <span className="text-[8px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-1 py-0.2 rounded uppercase font-bold">MOTM</span>}
+                        {pred.pointsBreakdown?.penalty > 0 && <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 py-0.2 rounded uppercase font-bold">Pens</span>}
                       </div>
                     </div>
                   ) : (

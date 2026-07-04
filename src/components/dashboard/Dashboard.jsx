@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { seedDatabase } from '../../utils/seeder';
@@ -16,62 +16,52 @@ export default function Dashboard() {
   const [seeding, setSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState('');
 
-  // 1. Fetch matches once on mount and set up 30s polling
+  // 1. Listen to matches in real-time
   useEffect(() => {
     if (!db) {
       setLoading(false);
       return;
     }
     
-    const fetchMatches = async () => {
-      try {
-        const q = query(collection(db, 'matches'), orderBy('kickoffTime', 'asc'));
-        const querySnapshot = await getDocs(q);
-        const matchesData = [];
-        querySnapshot.forEach((doc) => {
-          matchesData.push({
-            id: doc.id,
-            ...doc.data()
-          });
+    const q = query(collection(db, 'matches'), orderBy('kickoffTime', 'asc'));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const matchesData = [];
+      querySnapshot.forEach((doc) => {
+        matchesData.push({
+          id: doc.id,
+          ...doc.data()
         });
-        setAllMatches(matchesData);
-      } catch (error) {
-        console.error("Error fetching matches:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+      });
+      setAllMatches(matchesData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching matches in real-time:", error);
+      setLoading(false);
+    });
 
-    fetchMatches();
-    const interval = setInterval(fetchMatches, 30000);
-    return () => clearInterval(interval);
+    return () => unsubscribe();
   }, []);
 
-  // 2. Fetch user predictions once on mount and set up 30s polling
+  // 2. Listen to user predictions in real-time
   useEffect(() => {
     if (!user || !db) return;
     
-    const fetchPredictions = async () => {
-      try {
-        const q = query(collection(db, 'predictions'), where('userId', '==', user.uid));
-        const querySnapshot = await getDocs(q);
-        const predsMap = {};
-        querySnapshot.forEach((doc) => {
-          const pred = doc.data();
-          predsMap[pred.matchId] = {
-            id: doc.id,
-            ...pred
-          };
-        });
-        setPredictions(predsMap);
-      } catch (error) {
-        console.error("Error fetching predictions:", error);
-      }
-    };
+    const q = query(collection(db, 'predictions'), where('userId', '==', user.uid));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const predsMap = {};
+      querySnapshot.forEach((doc) => {
+        const pred = doc.data();
+        predsMap[pred.matchId] = {
+          id: doc.id,
+          ...pred
+        };
+      });
+      setPredictions(predsMap);
+    }, (error) => {
+      console.error("Error listening to predictions:", error);
+    });
 
-    fetchPredictions();
-    const interval = setInterval(fetchPredictions, 30000);
-    return () => clearInterval(interval);
+    return () => unsubscribe();
   }, [user]);
 
   const handleSeed = async () => {

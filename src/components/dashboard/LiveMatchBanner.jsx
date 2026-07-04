@@ -203,9 +203,60 @@ export default function LiveMatchBanner({ match, prediction }) {
           {isScheduled && (
             <Link
               to={`/predict?matchId=${match.id}`}
-              className="bg-[#F5C518] hover:bg-amber-400 text-black font-extrabold py-2 px-5 rounded-xl text-[10px] uppercase tracking-wider transition border-none shadow-[0_0_10px_rgba(245,197,24,0.15)] decoration-none text-center select-none"
+              style={{
+                background: prediction
+                  ? 'rgba(255, 255, 255, 0.03)'
+                  : 'linear-gradient(135deg, #F5C518 0%, #FFD700 50%, #E5A800 100%)',
+                border: prediction
+                  ? '1px solid rgba(245, 197, 24, 0.3)'
+                  : '1px solid #F5C518',
+                borderRadius: 12,
+                padding: '9px 22px',
+                color: prediction ? '#CBD5E1' : '#05091A',
+                fontFamily: 'Outfit, sans-serif',
+                fontWeight: 800,
+                fontSize: 10,
+                letterSpacing: '0.12em',
+                textDecoration: 'none',
+                textTransform: 'uppercase',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                boxShadow: prediction
+                  ? '0 2px 8px rgba(0, 0, 0, 0.2)'
+                  : '0 4px 18px rgba(245, 197, 24, 0.35)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                transform: 'scale(1)',
+                cursor: 'pointer'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'scale(1.03)';
+                e.currentTarget.style.background = prediction
+                  ? 'rgba(245, 197, 24, 0.1)'
+                  : 'linear-gradient(135deg, #FFD700 0%, #F5C518 100%)';
+                e.currentTarget.style.color = prediction ? '#F5C518' : '#05091A';
+                e.currentTarget.style.boxShadow = prediction
+                  ? '0 4px 16px rgba(245, 197, 24, 0.25)'
+                  : '0 6px 24px rgba(245, 197, 24, 0.55)';
+                e.currentTarget.style.borderColor = '#F5C518';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.background = prediction
+                  ? 'rgba(255, 255, 255, 0.03)'
+                  : 'linear-gradient(135deg, #F5C518 0%, #FFD700 50%, #E5A800 100%)';
+                e.currentTarget.style.color = prediction ? '#CBD5E1' : '#05091A';
+                e.currentTarget.style.boxShadow = prediction
+                  ? '0 2px 8px rgba(0, 0, 0, 0.2)'
+                  : '0 4px 18px rgba(245, 197, 24, 0.35)';
+                e.currentTarget.style.borderColor = prediction
+                  ? 'rgba(245, 197, 24, 0.3)'
+                  : '#F5C518';
+              }}
             >
-              {prediction ? 'Edit Pick' : 'Predict Now'}
+              <span>{prediction ? 'Edit Pick' : 'Predict Now'}</span>
+              <span>{prediction ? '✏️' : '→'}</span>
             </Link>
           )}
         </div>

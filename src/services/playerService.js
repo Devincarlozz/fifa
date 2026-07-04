@@ -8,7 +8,7 @@ export async function syncCustomPlayers() {
     const querySnapshot = await getDocs(collection(db, 'custom_players'));
     querySnapshot.forEach((docSnap) => {
       const player = docSnap.data();
-      const { country, name, position, number, price, pictureUrl } = player;
+      const { country, name, position, number, price } = player;
       if (country && name) {
         if (!squadData[country]) {
           squadData[country] = [];
@@ -20,8 +20,7 @@ export async function syncCustomPlayers() {
           name,
           position,
           number: String(number),
-          price: parseFloat(price) || 5.0,
-          pictureUrl: pictureUrl || ''
+          price: parseFloat(price) || 5.0
         };
         
         if (idx > -1) {
@@ -42,7 +41,7 @@ export async function syncCustomPlayers() {
 
 export async function saveCustomPlayer(playerData) {
   if (!db) return;
-  const { country, name, position, number, price, pictureUrl } = playerData;
+  const { country, name, position, number, price } = playerData;
   const docId = `${country.replace(/\s+/g, '_')}_${name.replace(/\s+/g, '_')}`;
   const docRef = doc(db, 'custom_players', docId);
   
@@ -52,7 +51,6 @@ export async function saveCustomPlayer(playerData) {
     position,
     number: String(number),
     price: parseFloat(price) || 5.0,
-    pictureUrl: pictureUrl || '',
     updatedAt: new Date().toISOString()
   };
   
@@ -72,3 +70,4 @@ export async function saveCustomPlayer(playerData) {
     squadData[country].push(payload);
   }
 }
+

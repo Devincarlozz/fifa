@@ -1,5 +1,5 @@
 // src/utils/pointsCalc.js
-import { doc, updateDoc, collection, query, where, getDocs, increment } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, getDocs, increment, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 /**
@@ -16,6 +16,7 @@ export function calculatePredictionPoints(prediction, match) {
     result: 0,
     exactScore: 0,
     motm: 0,
+    penalty: 0,
     total: 0
   };
 
@@ -54,7 +55,24 @@ export function calculatePredictionPoints(prediction, match) {
     result.motm = 3;
   }
 
-  result.total = (result.exactScore || result.result) + result.motm;
+  // 3. Evaluate Penalty shootout winner
+  const isKnockout = match.stage && [
+    'Round of 32',
+    'Round of 16',
+    'Quarter-finals',
+    'Semi-finals',
+    'Play-off for third place',
+    'Final'
+  ].includes(match.stage);
+
+  if (isKnockout && actualHome === actualAway && match.confirmedPenaltyScore) {
+    const actualPenWinner = parseInt(match.confirmedPenaltyScore.home) > parseInt(match.confirmedPenaltyScore.away) ? 'home' : 'away';
+    if (prediction.predictedPenaltyWinner && prediction.predictedPenaltyWinner === actualPenWinner) {
+      result.penalty = 2;
+    }
+  }
+
+  result.total = (result.exactScore || result.result) + result.motm + result.penalty;
   return result;
 }
 
@@ -71,7 +89,30 @@ export async function processMatchResults(matchId, adminResult) {
   const awayActual = parseInt(adminResult.finalScore.away);
   const actualOutcome = homeActual > awayActual ? 'HOME_WIN' : homeActual < awayActual ? 'AWAY_WIN' : 'DRAW';
 
-  // 1. Fetch all predictions for the match
+  // 1. Fetch match to check stage for penalty scoring
+  const matchRef = doc(db, 'matches', matchId);
+  const matchSnap = await getDoc(matchRef);
+  const match = matchSnap.exists() ? matchSnap.data() : null;
+
+  const isKnockout = match && [
+    'Round of 32',
+    'Round of 16',
+    'Quarter-finals',
+    'Semi-finals',
+    'Play-off for third place',
+    'Final'
+  ].includes(match.stage);
+
+  let actualPenaltyWinner = null;
+  if (isKnockout && homeActual === awayActual && adminResult.penaltyScore) {
+    const penHome = parseInt(adminResult.penaltyScore.home);
+    const penAway = parseInt(adminResult.penaltyScore.away);
+    if (!isNaN(penHome) && !isNaN(penAway)) {
+      actualPenaltyWinner = penHome > penAway ? 'home' : 'away';
+    }
+  }
+
+  // 2. Fetch all predictions for the match
   const predsQuery = query(collection(db, 'predictions'), where('matchId', '==', matchId));
   const predsSnapshot = await getDocs(predsQuery);
   const preds = [];
@@ -93,6 +134,7 @@ export async function processMatchResults(matchId, adminResult) {
     let exactScorePoints = 0;
     let resultPoints = 0;
     let motmPoints = 0;
+    let penaltyPoints = 0;
 
     // Evaluate scores
     if (predHome === homeActual && predAway === awayActual) {
@@ -110,11 +152,19 @@ export async function processMatchResults(matchId, adminResult) {
       motmPoints = 3;
     }
 
-    const total = exactScorePoints + resultPoints + motmPoints;
+    // Evaluate Penalties
+    if (isKnockout && homeActual === awayActual && actualPenaltyWinner) {
+      if (pred.predictedPenaltyWinner === actualPenaltyWinner) {
+        penaltyPoints = 2;
+      }
+    }
+
+    const total = exactScorePoints + resultPoints + motmPoints + penaltyPoints;
     const pointsBreakdown = {
       result: resultPoints,
       exactScore: exactScorePoints,
-      motm: motmPoints
+      motm: motmPoints,
+      penalty: penaltyPoints
     };
 
     // Update the prediction document in predictions collection
@@ -136,13 +186,18 @@ export async function processMatchResults(matchId, adminResult) {
     }
   }
 
-  // 2. Update match document status to 'CONFIRMED'
-  const matchRef = doc(db, 'matches', matchId);
-  await updateDoc(matchRef, {
+  // 3. Update match document status to 'CONFIRMED'
+  const matchUpdate = {
     status: 'CONFIRMED',
     confirmed: true,
     confirmedResult: { homeGoals: homeActual, awayGoals: awayActual },
     confirmedMOTM: adminResult.manOfTheMatch,
     confirmedAt: new Date().toISOString()
-  });
+  };
+  
+  if (adminResult.penaltyScore) {
+    matchUpdate.confirmedPenaltyScore = adminResult.penaltyScore;
+  }
+  
+  await updateDoc(matchRef, matchUpdate);
 }

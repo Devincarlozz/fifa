@@ -8,7 +8,8 @@ import {
   setDoc, 
   updateDoc, 
   deleteDoc, 
-  where 
+  where,
+  onSnapshot
 } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { processMatchResults } from '../../utils/pointsCalc';
@@ -73,10 +74,11 @@ export default function AdminDashboard() {
   const [confirmedHomeGoals, setConfirmedHomeGoals] = useState('');
   const [confirmedAwayGoals, setConfirmedAwayGoals] = useState('');
   const [confirmedMOTM, setConfirmedMOTM] = useState('');
+  const [confirmedHomePenalties, setConfirmedHomePenalties] = useState('');
+  const [confirmedAwayPenalties, setConfirmedAwayPenalties] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [adminError, setAdminError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [activeSquad, setActiveSquad] = useState([]);
   const [loadingSquad, setLoadingSquad] = useState(false);
 
@@ -93,7 +95,6 @@ export default function AdminDashboard() {
   const [formPlayerNumber, setFormPlayerNumber] = useState('');
   const [formPlayerPosition, setFormPlayerPosition] = useState('FW');
   const [formPlayerPrice, setFormPlayerPrice] = useState('5.0');
-  const [formPlayerPictureUrl, setFormPlayerPictureUrl] = useState('');
 
   // Create Fixture Form states
   const [newHomeName, setNewHomeName] = useState('');
@@ -117,6 +118,8 @@ export default function AdminDashboard() {
   const [editStage, setEditStage] = useState('GROUP_STAGE');
   const [editKickoff, setEditKickoff] = useState('');
   const [editStatus, setEditStatus] = useState('SCHEDULED');
+  const [editHomeGoals, setEditHomeGoals] = useState('0');
+  const [editAwayGoals, setEditAwayGoals] = useState('0');
 
   const editFormRef = useRef(null);
 
@@ -129,35 +132,30 @@ export default function AdminDashboard() {
     }
   }, [editingMatchId]);
 
-  // 1. Fetch matches once on mount and set up 30s polling
+  // 1. Listen to matches in real-time
   useEffect(() => {
     if (!db) {
       setLoading(false);
       return;
     }
     
-    const fetchMatches = async () => {
-      try {
-        const q = query(collection(db, 'matches'), orderBy('kickoffTime', 'asc'));
-        const querySnapshot = await getDocs(q);
-        const matchesData = [];
-        querySnapshot.forEach((doc) => {
-          matchesData.push({
-            id: doc.id,
-            ...doc.data()
-          });
+    const q = query(collection(db, 'matches'), orderBy('kickoffTime', 'asc'));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const matchesData = [];
+      querySnapshot.forEach((doc) => {
+        matchesData.push({
+          id: doc.id,
+          ...doc.data()
         });
-        setMatches(matchesData);
-      } catch (error) {
-        console.error("Error fetching matches:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+      });
+      setMatches(matchesData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching matches in real-time:", error);
+      setLoading(false);
+    });
 
-    fetchMatches();
-    const interval = setInterval(fetchMatches, 30000);
-    return () => clearInterval(interval);
+    return () => unsubscribe();
   }, []);
 
   // 2. Fetch players once on mount and set up 30s polling
@@ -254,19 +252,43 @@ export default function AdminDashboard() {
     setConfirmedHomeGoals(match.liveScore?.home?.toString() || '0');
     setConfirmedAwayGoals(match.liveScore?.away?.toString() || '0');
     setConfirmedMOTM(match.confirmedMOTM || '');
+    setConfirmedHomePenalties(match.confirmedPenaltyScore?.home?.toString() || '');
+    setConfirmedAwayPenalties(match.confirmedPenaltyScore?.away?.toString() || '');
     setAdminError(null);
     setSuccessMessage('');
     loadSquadForMatch(match);
   };
 
-  // Triggered when modal is confirmed
+  // Triggered when resolving match and awarding points
   const confirmAwardPointsAction = async () => {
-    setShowConfirmModal(false);
     if (!confirmingMatchId) return;
 
     if (confirmedHomeGoals === '' || confirmedAwayGoals === '' || !confirmedMOTM) {
       setAdminError("Please fill out all results (goals, MOTM).");
       return;
+    }
+
+    const match = getMatchDetails(confirmingMatchId);
+    const isKnockout = match && [
+      'Round of 32',
+      'Round of 16',
+      'Quarter-finals',
+      'Semi-finals',
+      'Play-off for third place',
+      'Final'
+    ].includes(match.stage);
+
+    const isDraw = parseInt(confirmedHomeGoals) === parseInt(confirmedAwayGoals);
+
+    if (isKnockout && isDraw) {
+      if (confirmedHomePenalties === '' || confirmedAwayPenalties === '') {
+        setAdminError("Please fill out penalty shootout scores for knockout draws.");
+        return;
+      }
+      if (parseInt(confirmedHomePenalties) === parseInt(confirmedAwayPenalties)) {
+        setAdminError("Penalty shootout cannot end in a draw. One team must win.");
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -279,6 +301,10 @@ export default function AdminDashboard() {
           home: parseInt(confirmedHomeGoals),
           away: parseInt(confirmedAwayGoals)
         },
+        penaltyScore: isKnockout && isDraw ? {
+          home: parseInt(confirmedHomePenalties),
+          away: parseInt(confirmedAwayPenalties)
+        } : null,
         manOfTheMatch: confirmedMOTM.trim(),
         confirmedBy: user?.email || 'admin@rit.ac.in'
       };
@@ -435,6 +461,37 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleClearPlayerImages = async () => {
+    if (!window.confirm("Are you sure you want to remove all player image URLs from the Firebase database? This action is irreversible.")) return;
+    setIsSubmitting(true);
+    setSuccessMessage('');
+    try {
+      const querySnapshot = await getDocs(collection(db, 'custom_players'));
+      let count = 0;
+      for (const docSnap of querySnapshot.docs) {
+        const docRef = doc(db, 'custom_players', docSnap.id);
+        await updateDoc(docRef, {
+          pictureUrl: ''
+        });
+        count++;
+      }
+      setSuccessMessage(`🗑️ Successfully cleared player image URLs for ${count} players in Firebase!`);
+      // Also clear in-memory squadData pictureUrl values
+      Object.keys(squadData).forEach(country => {
+        squadData[country].forEach(player => {
+          if ('pictureUrl' in player) {
+            player.pictureUrl = '';
+          }
+        });
+      });
+    } catch (err) {
+      console.error("Error clearing player image URLs:", err);
+      alert(`Error clearing player image URLs: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Open edit match status / bonus question
   const handleOpenEdit = (match) => {
     setEditingMatchId(match.id);
@@ -454,6 +511,8 @@ export default function AdminDashboard() {
     setEditVenue(match.venue || '');
     setEditStage(match.stage || 'GROUP_STAGE');
     setEditStatus(match.status || 'SCHEDULED');
+    setEditHomeGoals(match.liveScore?.home?.toString() || '0');
+    setEditAwayGoals(match.liveScore?.away?.toString() || '0');
   };
 
   // Save edit match status / bonus question
@@ -483,6 +542,10 @@ export default function AdminDashboard() {
         kickoffTime: new Date(editKickoff),
         venue: editVenue,
         stage: editStage,
+        liveScore: {
+          home: parseInt(editHomeGoals) || 0,
+          away: parseInt(editAwayGoals) || 0
+        },
         status: editStatus
       };
       
@@ -528,8 +591,7 @@ export default function AdminDashboard() {
         name: formPlayerName.trim(),
         position: formPlayerPosition,
         number: formPlayerNumber.trim(),
-        price: parseFloat(formPlayerPrice) || 5.0,
-        pictureUrl: formPlayerPictureUrl.trim()
+        price: parseFloat(formPlayerPrice) || 5.0
       });
       setSuccessMessage(`✅ Player ${formPlayerName} saved successfully!`);
       setEditingPlayer(null);
@@ -538,7 +600,6 @@ export default function AdminDashboard() {
       setFormPlayerNumber('');
       setFormPlayerPosition('FW');
       setFormPlayerPrice('5.0');
-      setFormPlayerPictureUrl('');
     } catch (err) {
       console.error(err);
       setAdminError(err.message || "Failed to save player details.");
@@ -554,7 +615,6 @@ export default function AdminDashboard() {
     setFormPlayerNumber(player.number || '');
     setFormPlayerPosition(player.position || 'FW');
     setFormPlayerPrice(player.price?.toString() || '5.0');
-    setFormPlayerPictureUrl(player.pictureUrl || '');
   };
 
   const handleAddNewPlayerClick = () => {
@@ -564,7 +624,6 @@ export default function AdminDashboard() {
     setFormPlayerNumber('');
     setFormPlayerPosition('FW');
     setFormPlayerPrice('5.0');
-    setFormPlayerPictureUrl('');
   };
 
   const resolvableMatches = matches.filter(m => !m.confirmed);
@@ -832,6 +891,51 @@ export default function AdminDashboard() {
                             )}
                           </div>
                         </div>
+
+                        {/* Penalty Shootout Score input */}
+                        {confirmedHomeGoals !== '' && 
+                        confirmedAwayGoals !== '' && 
+                        parseInt(confirmedHomeGoals) === parseInt(confirmedAwayGoals) && 
+                        [
+                          'Round of 32',
+                          'Round of 16',
+                          'Quarter-finals',
+                          'Semi-finals',
+                          'Play-off for third place',
+                          'Final'
+                        ].includes(match.stage) && (
+                          <div className="mt-4 border-t border-white/5 pt-4">
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 font-mono">
+                              ⚽ Penalty Shootout Score (Knockout Draw)
+                            </label>
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 flex items-center justify-end gap-2">
+                                <span className="text-xs text-gray-400">{match.homeTeam.code}:</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={confirmedHomePenalties}
+                                  onChange={(e) => setConfirmedHomePenalties(e.target.value)}
+                                  placeholder="0"
+                                  className="w-12 bg-[#0A0E1A] border border-[#F5C518]/25 rounded-xl p-2 text-center font-mono font-bold text-sm text-[#F5C518] focus:outline-none focus:border-[#F5C518]"
+                                />
+                              </div>
+                              <span className="text-gray-650 font-bold text-xs">-</span>
+                              <div className="flex-1 flex items-center justify-start gap-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={confirmedAwayPenalties}
+                                  onChange={(e) => setConfirmedAwayPenalties(e.target.value)}
+                                  placeholder="0"
+                                  className="w-12 bg-[#0A0E1A] border border-[#F5C518]/25 rounded-xl p-2 text-center font-mono font-bold text-sm text-[#F5C518] focus:outline-none focus:border-[#F5C518]"
+                                />
+                                <span className="text-xs text-gray-400">:{match.awayTeam.code}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                       </div>
                     )}
 
@@ -854,10 +958,11 @@ export default function AdminDashboard() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setShowConfirmModal(true)}
-                            className="bg-[#F5C518] hover:bg-amber-400 text-black font-extrabold py-2 px-5 rounded-xl text-xs uppercase tracking-wider transition border-none shadow-[0_0_15px_rgba(245,197,24,0.15)] cursor-pointer"
+                            onClick={confirmAwardPointsAction}
+                            disabled={isSubmitting}
+                            className="bg-[#F5C518] hover:bg-amber-400 text-black font-extrabold py-2 px-5 rounded-xl text-xs uppercase tracking-wider transition border-none shadow-[0_0_15px_rgba(245,197,24,0.15)] cursor-pointer disabled:opacity-50"
                           >
-                            Resolve & Award Points
+                            {isSubmitting ? 'Resolving...' : 'Resolve & Award Points'}
                           </button>
                         </>
                       ) : (
@@ -1456,6 +1561,30 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                {/* Live Score Fields */}
+                <div className="grid grid-cols-2 gap-4 bg-black/15 p-4 rounded-xl border border-white/5">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1.5">Live Score (Home Team)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editHomeGoals}
+                      onChange={(e) => setEditHomeGoals(e.target.value)}
+                      className="w-full bg-[#0A0E1A] border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-[#F5C518] font-mono text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1.5">Live Score (Away Team)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editAwayGoals}
+                      onChange={(e) => setEditAwayGoals(e.target.value)}
+                      className="w-full bg-[#0A0E1A] border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-[#F5C518] font-mono text-center"
+                    />
+                  </div>
+                </div>
+
 
 
                 <div className="flex justify-end space-x-3 pt-2 border-t border-white/5">
@@ -1497,10 +1626,18 @@ export default function AdminDashboard() {
                   Player Roster Management
                 </h3>
                 <p className="text-[11px] text-gray-400 mt-1 font-sans">
-                  Add new players or edit details like position, price, jersey number, and custom pictures globally.
+                  Add new players or edit details like position, price, and jersey number globally.
                 </p>
               </div>
-              <div>
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleClearPlayerImages}
+                  disabled={isSubmitting}
+                  className="bg-[#F5C518]/10 hover:bg-[#F5C518] text-[#F5C518] hover:text-black border border-[#F5C518]/25 font-bold py-2 px-4 rounded-xl text-xs transition duration-300 cursor-pointer disabled:opacity-50"
+                >
+                  🗑️ Clear Picture URLs from Firebase
+                </button>
                 {selectedPlayerTeam && (
                   <button
                     type="button"
@@ -1656,17 +1793,6 @@ export default function AdminDashboard() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1.5">Picture URL (Custom Photo)</label>
-                    <input
-                      type="url"
-                      value={formPlayerPictureUrl}
-                      onChange={(e) => setFormPlayerPictureUrl(e.target.value)}
-                      placeholder="https://example.com/photo.png"
-                      className="w-full bg-[#0A0E1A] border border-white/10 rounded-xl p-3 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-[#F5C518]"
-                    />
-                  </div>
-
                   <div className="flex justify-end space-x-3 pt-2 border-t border-white/5 mt-2">
                     <button
                       type="button"
@@ -1693,32 +1819,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* CONFIRMATION WARNING MODAL */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="card max-w-sm w-full mx-4 p-6 border border-[#F5C518]/30 bg-[#0F1520] rounded-2xl shadow-2xl text-center">
-            <h4 className="text-lg font-bold text-white uppercase tracking-wider mb-2">Confirm Resolution?</h4>
-            <p className="text-xs text-gray-400 mb-6 font-sans">
-              This will lock this match results, distribute prediction points to all players, and update the leaderboard. This action is irreversible.
-            </p>
-            <div className="flex justify-center space-x-3">
-              <button
-                onClick={() => setShowConfirmModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-white cursor-pointer border-none bg-transparent"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmAwardPointsAction}
-                disabled={isSubmitting}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#F5C518] text-black hover:opacity-90 transition border-none cursor-pointer"
-              >
-                Confirm & Award
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
     </div>
   );

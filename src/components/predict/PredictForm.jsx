@@ -7,35 +7,6 @@ import { ArrowLeft, AlertTriangle, CheckCircle2, ChevronUp, ChevronDown } from '
 import { squadData } from '../../utils/tournamentData';
 
 function PlayerCard({ player, isSelected, onClick, disabled }) {
-  const [photoUrl, setPhotoUrl] = useState(player.pictureUrl || localStorage.getItem(`photo_${player.name}`) || '');
-
-  useEffect(() => {
-    if (player.pictureUrl) {
-      setPhotoUrl(player.pictureUrl);
-      return;
-    }
-    if (photoUrl) return;
-
-    let isMounted = true;
-    async function fetchPhoto() {
-      try {
-        const res = await fetch(`https://www.thesportsdb.com/api/v1/json/3/searchplayers.php?p=${encodeURIComponent(player.name)}`);
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        const pInfo = data.player?.[0];
-        const url = pInfo?.strCutout || pInfo?.strThumb || '';
-        if (url) {
-          localStorage.setItem(`photo_${player.name}`, url);
-          if (isMounted) setPhotoUrl(url);
-        }
-      } catch (err) {
-        // Fallback handled by showing initials
-      }
-    }
-    fetchPhoto();
-    return () => { isMounted = false; };
-  }, [player.name, player.pictureUrl, photoUrl]);
-
   const initials = player.name
     .split(' ')
     .map(n => n[0])
@@ -55,11 +26,7 @@ function PlayerCard({ player, isSelected, onClick, disabled }) {
       } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       <div className="w-12 h-12 rounded-full border border-white/10 bg-white/5 flex items-center justify-center overflow-hidden mb-2 relative flex-shrink-0">
-        {photoUrl ? (
-          <img src={photoUrl} alt={player.name} className="w-full h-full object-cover" />
-        ) : (
-          <span className="text-xs font-bold text-gray-400">{initials}</span>
-        )}
+        <span className="text-xs font-bold text-gray-400">{initials}</span>
       </div>
       <span className="text-white text-[11px] font-semibold text-center truncate w-full leading-tight mb-0.5">
         {player.name}
@@ -87,7 +54,7 @@ export default function PredictForm() {
   const [homeGoals, setHomeGoals] = useState(2);
   const [awayGoals, setAwayGoals] = useState(1);
   const [manOfTheMatch, setManOfTheMatch] = useState('');
-  const [motmPhotoUrl, setMotmPhotoUrl] = useState('');
+  const [predictedPenaltyWinner, setPredictedPenaltyWinner] = useState('');
   // Squad States
   const [homeSquad, setHomeSquad] = useState([]);
   const [awaySquad, setAwaySquad] = useState([]);
@@ -180,7 +147,7 @@ export default function PredictForm() {
             setHomeGoals(parseInt(predData.homeGoals) ?? 2);
             setAwayGoals(parseInt(predData.awayGoals) ?? 1);
             setManOfTheMatch(predData.manOfTheMatch || '');
-            setMotmPhotoUrl(predData.motmPhotoUrl || '');
+            setPredictedPenaltyWinner(predData.predictedPenaltyWinner || '');
           }
         } else {
           const predId = `${user.uid}_${matchId}`;
@@ -192,7 +159,7 @@ export default function PredictForm() {
             setHomeGoals(parseInt(predData.homeGoals) ?? 2);
             setAwayGoals(parseInt(predData.awayGoals) ?? 1);
             setManOfTheMatch(predData.manOfTheMatch || '');
-            setMotmPhotoUrl(predData.motmPhotoUrl || '');
+            setPredictedPenaltyWinner(predData.predictedPenaltyWinner || '');
           }
         }
       } catch (err) {
@@ -259,8 +226,6 @@ export default function PredictForm() {
 
   const handleSelectPlayer = (player) => {
     setManOfTheMatch(player.name);
-    const photo = player.pictureUrl || localStorage.getItem(`photo_${player.name}`) || '';
-    setMotmPhotoUrl(photo);
   };
 
   const handleSubmit = async (e) => {
@@ -275,13 +240,28 @@ export default function PredictForm() {
       return;
     }
 
+    const isKnockoutStage = match && [
+      'Round of 32',
+      'Round of 16',
+      'Quarter-finals',
+      'Semi-finals',
+      'Play-off for third place',
+      'Final'
+    ].includes(match.stage);
+
+    const isDraw = isNaN(parseInt(homeGoals)) ? false : parseInt(homeGoals) === (isNaN(parseInt(awayGoals)) ? 0 : parseInt(awayGoals));
+
+    if (isKnockoutStage && isDraw && !predictedPenaltyWinner) {
+      setError("Please select who will win the penalty shootout.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
     setSuccess(false);
 
     try {
       const predId = `${user.uid}_${matchId}`;
-      const photoToSave = motmPhotoUrl || localStorage.getItem(`photo_${manOfTheMatch}`) || '';
       
       const predictionDoc = {
         id: predId,
@@ -290,7 +270,8 @@ export default function PredictForm() {
         homeGoals: isNaN(parseInt(homeGoals)) ? 0 : parseInt(homeGoals),
         awayGoals: isNaN(parseInt(awayGoals)) ? 0 : parseInt(awayGoals),
         manOfTheMatch,
-        motmPhotoUrl: photoToSave,
+        motmPhotoUrl: '',
+        predictedPenaltyWinner: (isKnockoutStage && isDraw) ? predictedPenaltyWinner : null,
         submittedAt: new Date().toISOString(),
         isLocked: false
       };
@@ -615,6 +596,55 @@ export default function PredictForm() {
               </div>
 
             </div>
+
+            {/* Penalty Shootout Winner Question */}
+            {match && [
+              'Round of 32',
+              'Round of 16',
+              'Quarter-finals',
+              'Semi-finals',
+              'Play-off for third place',
+              'Final'
+            ].includes(match.stage) && 
+            homeGoals !== '' && 
+            awayGoals !== '' && 
+            parseInt(homeGoals) === parseInt(awayGoals) && (
+              <div className="bg-[#F5C518]/5 border border-[#F5C518]/25 rounded-xl p-4 text-left space-y-3 animate-fadeIn mt-4 select-none">
+                <span className="text-[10px] font-bold text-[#F5C518] uppercase tracking-wider block font-mono">
+                  🎯 Knockout Draw: Predict Penalty Winner
+                </span>
+                <p className="text-[11px] text-gray-400">
+                  Knockout matches cannot end in a draw. Who will win the penalty shootout?
+                </p>
+                <div className="flex gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setPredictedPenaltyWinner('home')}
+                    disabled={isLocked || saving}
+                    className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold uppercase border transition duration-200 cursor-pointer ${
+                      predictedPenaltyWinner === 'home'
+                        ? 'bg-[#F5C518] text-[#0A0E1A] border-[#F5C518] shadow-md'
+                        : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    {match.homeTeam?.name || 'Home Team'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPredictedPenaltyWinner('away')}
+                    disabled={isLocked || saving}
+                    className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold uppercase border transition duration-200 cursor-pointer ${
+                      predictedPenaltyWinner === 'away'
+                        ? 'bg-[#F5C518] text-[#0A0E1A] border-[#F5C518] shadow-md'
+                        : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    {match.awayTeam?.name || 'Away Team'}
+                  </button>
+                </div>
+              </div>
+            )}
+
           </div>
 
           {error && (
@@ -671,11 +701,7 @@ export default function PredictForm() {
               <div className="bg-[#F5C518]/5 border border-[#F5C518]/30 rounded-xl p-4 flex items-center justify-between shadow-[0_0_15px_rgba(245,197,24,0.05)] transition-all animate-fadeIn">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-full border-2 border-[#F5C518] bg-white/5 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-md">
-                    {motmPhotoUrl ? (
-                      <img src={motmPhotoUrl} alt={manOfTheMatch} className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-xs font-bold text-[#F5C518]">{manOfTheMatch.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</span>
-                    )}
+                    <span className="text-xs font-bold text-[#F5C518]">{manOfTheMatch.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</span>
                   </div>
                   <div className="text-left">
                     <span className="text-[10px] text-[#F5C518] uppercase tracking-widest font-bold font-display">Your Selected Pick</span>

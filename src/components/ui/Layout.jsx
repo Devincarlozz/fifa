@@ -59,7 +59,6 @@ export default function Layout({ children }) {
     }
   };
 
-  const userLevel = Math.max(1, Math.floor(points / 200));
 
   const sidebarItems = [
     { name: 'Home', path: '/', icon: Home },
@@ -172,7 +171,6 @@ export default function Layout({ children }) {
                   )}
                   <div className="user-info hidden sm:flex">
                     <span className="user-name">{user.displayName || 'Player'}</span>
-                    <span className="user-level">Lvl {userLevel}</span>
                   </div>
                 </div>
               )}
@@ -181,6 +179,28 @@ export default function Layout({ children }) {
                 <Trophy style={{ width: 15, height: 15, color: '#F5C518' }} />
                 <span>{points.toLocaleString()} PTS</span>
               </div>
+
+              <button
+                onClick={() => setShowHowToPlay(true)}
+                className="mobile-help-btn"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  border: '1px solid rgba(255, 255, 255, 0.07)',
+                  borderRadius: '50%',
+                  width: 34,
+                  height: 34,
+                  cursor: 'pointer',
+                  color: '#F5C518',
+                  padding: 0,
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                title="How to Play"
+              >
+                <HelpCircle style={{ width: 18, height: 18 }} />
+              </button>
             </div>
           </div>
         </header>
@@ -207,6 +227,25 @@ export default function Layout({ children }) {
               </NavLink>
             );
           })}
+          <button
+            onClick={() => setShowHowToPlay(true)}
+            className="bottom-nav-item"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+              outline: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '4px'
+            }}
+          >
+            <HelpCircle className="bottom-nav-icon" />
+            <span className="bottom-nav-label">Rules</span>
+          </button>
         </nav>
       </div>
 
@@ -279,12 +318,17 @@ export default function Layout({ children }) {
                     ['Exact Score Match', '+5 pts', '#22C55E'],
                     ['Correct Match Outcome', '+2 pts', '#22C55E'],
                     ['Correct Man of the Match', '+3 pts', '#22C55E'],
+                    ['Knockout Penalty Shootout Winner', '+2 pts', '#F5C518'],
                   ].map(([label, pts, color]) => (
                     <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontWeight: 500, color: '#F1F5F9' }}>{label}</span>
                       <span style={{ color, fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: 15 }}>{pts}</span>
                     </div>
                   ))}
+                </div>
+
+                <div style={{ background: 'rgba(245,197,24,0.05)', border: '1px solid rgba(245,197,24,0.15)', borderRadius: 10, padding: '10px 12px', fontSize: 11, color: '#94A3B8', lineHeight: 1.6 }}>
+                  🎯 <strong style={{ color: '#F5C518' }}>Knockout Draw?</strong> When you predict a draw in any knockout stage match (Round of 32 to Final), you'll be asked to pick the penalty shootout winner for bonus points!
                 </div>
 
                 <p style={{ fontSize: 11, color: '#64748B', fontFamily: 'monospace', letterSpacing: '0.05em' }}>
@@ -307,9 +351,9 @@ export default function Layout({ children }) {
                   </div>
 
                   <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 10, border: '1px solid rgba(255,255,255,0.05)' }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: '#F5C518', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>Starting XI & Captain</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#F5C518', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 4 }}>Starting XI, Bench & Captain</span>
                     <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <li>Place 11 players in your starters. Benched players score 0 pts.</li>
+                      <li>Place 11 players in your starters and 4 on the bench. Both starting and benched players earn points.</li>
                       <li>Appoint a Captain to earn double (2x) points.</li>
                     </ul>
                   </div>
