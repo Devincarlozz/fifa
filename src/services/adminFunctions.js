@@ -902,7 +902,13 @@ export const callSavePlayer = async (playerData) => {
   
   if (oldName && oldName !== name) {
     const oldPlayerId = `${country.replace(/\s+/g, '_')}_${oldName.replace(/\s+/g, '_')}`;
-    batch.delete(doc(db, "custom_players", oldPlayerId));
+    // Write a deleted marker for the old name in case it was a default static player
+    batch.set(doc(db, "custom_players", oldPlayerId), {
+      country,
+      name: oldName,
+      deleted: true,
+      updatedAt: new Date().toISOString()
+    });
   }
 
   batch.set(doc(db, "custom_players", playerId), newPlayer);
@@ -916,7 +922,13 @@ export const callSavePlayer = async (playerData) => {
  */
 export const callDeletePlayer = async (country, name) => {
   const playerId = `${country.replace(/\s+/g, '_')}_${name.replace(/\s+/g, '_')}`;
-  await deleteDoc(doc(db, "custom_players", playerId));
+  // Write a deleted marker instead of deleting the doc, so that default static players are also filtered out
+  await setDoc(doc(db, "custom_players", playerId), {
+    country,
+    name,
+    deleted: true,
+    updatedAt: new Date().toISOString()
+  });
   return { success: true, message: `Player ${name} deleted successfully.` };
 };
 

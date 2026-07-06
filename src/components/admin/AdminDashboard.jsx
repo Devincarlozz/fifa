@@ -663,15 +663,54 @@ export default function AdminDashboard() {
     setAdminError(null);
     setSuccessMessage('');
     try {
+      const cleanName = formPlayerName.trim();
+      const cleanNumber = formPlayerNumber.trim();
+      const cleanPosition = formPlayerPosition;
+      const cleanPrice = parseFloat(formPlayerPrice) || 5.0;
+      const oldPlayerName = editingPlayer ? editingPlayer.name : null;
+
       await callSavePlayer({
         country: selectedPlayerTeam,
-        name: formPlayerName.trim(),
-        position: formPlayerPosition,
-        number: formPlayerNumber.trim(),
-        price: parseFloat(formPlayerPrice) || 5.0,
-        oldName: editingPlayer ? editingPlayer.name : null
+        name: cleanName,
+        position: cleanPosition,
+        number: cleanNumber,
+        price: cleanPrice,
+        oldName: oldPlayerName
       });
-      setSuccessMessage(`✅ Player ${formPlayerName} saved successfully!`);
+
+      // Synchronously update in-memory squadData
+      if (!squadData[selectedPlayerTeam]) {
+        squadData[selectedPlayerTeam] = [];
+      }
+
+      // If we are renaming a player, remove the old name from in-memory squadData
+      if (oldPlayerName && oldPlayerName.toLowerCase() !== cleanName.toLowerCase()) {
+        squadData[selectedPlayerTeam] = squadData[selectedPlayerTeam].filter(
+          p => p.name.toLowerCase() !== oldPlayerName.toLowerCase()
+        );
+      }
+
+      const updatedPayload = {
+        name: cleanName,
+        position: cleanPosition,
+        number: cleanNumber,
+        price: cleanPrice
+      };
+
+      const existingIdx = squadData[selectedPlayerTeam].findIndex(
+        p => p.name.toLowerCase() === cleanName.toLowerCase()
+      );
+
+      if (existingIdx > -1) {
+        squadData[selectedPlayerTeam][existingIdx] = {
+          ...squadData[selectedPlayerTeam][existingIdx],
+          ...updatedPayload
+        };
+      } else {
+        squadData[selectedPlayerTeam].push(updatedPayload);
+      }
+
+      setSuccessMessage(`✅ Player ${cleanName} saved successfully!`);
       setEditingPlayer(null);
       setIsAddingNewPlayer(false);
       setFormPlayerName('');
@@ -707,6 +746,14 @@ export default function AdminDashboard() {
     setSuccessMessage('');
     try {
       await callDeletePlayer(selectedPlayerTeam, player.name);
+
+      // Synchronously update in-memory squadData
+      if (squadData[selectedPlayerTeam]) {
+        squadData[selectedPlayerTeam] = squadData[selectedPlayerTeam].filter(
+          p => p.name.toLowerCase() !== player.name.toLowerCase()
+        );
+      }
+
       setSuccessMessage(`🗑️ Player ${player.name} deleted successfully!`);
       // Refresh local squad state
       setSquadPlayers([...(squadData[selectedPlayerTeam] || [])]);
