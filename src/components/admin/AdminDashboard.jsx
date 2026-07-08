@@ -18,6 +18,7 @@ import { squadData } from '../../utils/tournamentData';
 import DreamTeamRankingsPanel from './DreamTeamRankingsPanel';
 import {
   callConfirmMatchResult,
+  callUnresolveMatch,
   callRecalculateAllPoints,
   callCreateFixture,
   callUpdateFixture,
@@ -88,6 +89,7 @@ export default function AdminDashboard() {
   const [confirmedHomePenalties, setConfirmedHomePenalties] = useState('');
   const [confirmedAwayPenalties, setConfirmedAwayPenalties] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [unresolving, setUnresolving] = useState(null);
   const [adminError, setAdminError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [activeSquad, setActiveSquad] = useState([]);
@@ -1198,6 +1200,82 @@ export default function AdminDashboard() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Resolved Matches — Re-resolve Section */}
+          {resolvedMatches.length > 0 && (
+            <div className="space-y-4 mt-8">
+              <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  Resolved Matches ({resolvedMatches.length})
+                </h3>
+                <span className="text-[9px] text-gray-500 font-mono">Click re-resolve to undo & fix</span>
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                {resolvedMatches.map((match) => (
+                  <div key={match.id} className="card relative overflow-hidden bg-green-950/10 border-green-500/10">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                      {/* Match info */}
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xl">{match.homeTeam?.flag || '⚽'}</span>
+                          <span className="font-display text-sm font-black text-white uppercase">{match.homeTeam?.code}</span>
+                        </div>
+                        <div className="text-center">
+                          <span className="text-lg font-black text-white">
+                            {match.confirmedResult?.homeGoals ?? '?'} - {match.confirmedResult?.awayGoals ?? '?'}
+                          </span>
+                          {match.confirmedPenaltyScore && (
+                            <span className="text-[9px] text-gray-400 block font-mono">
+                              (PEN: {match.confirmedPenaltyScore.home}-{match.confirmedPenaltyScore.away})
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-display text-sm font-black text-white uppercase">{match.awayTeam?.code}</span>
+                          <span className="text-xl">{match.awayTeam?.flag || '⚽'}</span>
+                        </div>
+                      </div>
+                      {/* MOTM + Status */}
+                      <div className="flex items-center gap-3">
+                        {match.confirmedMOTM && (
+                          <span className="text-[9px] text-gray-400 font-mono bg-white/5 px-2 py-1 rounded">
+                            MOTM: {match.confirmedMOTM}
+                          </span>
+                        )}
+                        <span className="text-[9px] font-bold bg-green-500/10 text-green-400 border border-green-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
+                          ✅ Resolved
+                        </span>
+                      </div>
+                      {/* Re-resolve button */}
+                      <button
+                        type="button"
+                        disabled={unresolving === match.id || isSubmitting}
+                        onClick={async () => {
+                          if (!window.confirm(`Are you sure you want to unresolve ${match.homeTeam?.code} vs ${match.awayTeam?.code}? This will reverse all awarded points for this match.`)) return;
+                          setUnresolving(match.id);
+                          setAdminError(null);
+                          setSuccessMessage('');
+                          try {
+                            const result = await callUnresolveMatch(match.id);
+                            setSuccessMessage(`🔄 ${result.message}`);
+                          } catch (err) {
+                            console.error(err);
+                            setAdminError(err.message || 'Failed to unresolve match.');
+                          } finally {
+                            setUnresolving(null);
+                          }
+                        }}
+                        className="bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 font-bold py-2 px-4 rounded-xl text-[10px] uppercase tracking-wider transition border border-red-500/20 cursor-pointer disabled:opacity-50 flex-shrink-0"
+                      >
+                        {unresolving === match.id ? 'Unresolving...' : '🔄 Re-resolve'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
