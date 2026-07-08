@@ -116,7 +116,42 @@ export const callConfirmMatchResult = async (matchId, finalScore, penaltyScore, 
   if (!matchSnap.exists()) throw new Error(`Match ${matchId} not found.`);
   
   const match = matchSnap.data();
-  if (match.confirmed) throw new Error("This match has already been confirmed.");
+  
+  // If match was already confirmed, reverse the old points first
+  if (match.confirmed) {
+    const oldPredsQ = query(collection(db, "predictions"), where("matchId", "==", matchId));
+    const oldPredsSnap = await getDocs(oldPredsQ);
+    const reverseBatch = writeBatch(db);
+    const reversePointsMap = {};
+    
+    oldPredsSnap.forEach((predDoc) => {
+      const pred = predDoc.data();
+      const userId = pred.userId;
+      if (!userId) return;
+      const oldPoints = pred.pointsEarned || 0;
+      if (oldPoints > 0) {
+        if (!reversePointsMap[userId]) reversePointsMap[userId] = 0;
+        reversePointsMap[userId] += oldPoints;
+      }
+      // Reset prediction points
+      reverseBatch.update(predDoc.ref, {
+        pointsEarned: 0,
+        pointsBreakdown: null,
+        pointsAwardedAt: null,
+      });
+    });
+    
+    // Subtract old points from users
+    for (const [userId, points] of Object.entries(reversePointsMap)) {
+      const userRef = doc(db, "users", userId);
+      reverseBatch.update(userRef, {
+        totalPoints: increment(-points),
+        predictionsCount: increment(-1),
+      });
+    }
+    
+    await reverseBatch.commit();
+  }
   
   const isKnockout = match.stage && [
     "Round of 32",
@@ -237,6 +272,71 @@ export const callConfirmMatchResult = async (matchId, finalScore, penaltyScore, 
     success: true,
     message: `Results confirmed. Points distributed to ${Object.keys(userPointsMap).length} users.`,
     predictionsProcessed: predsSnap.size,
+  };
+};
+
+/**
+ * Unresolves a match — resets confirmed state and reverses all awarded points.
+ * After this, the match will appear back in the resolve queue.
+ */
+export const callUnresolveMatch = async (matchId) => {
+  const matchRef = doc(db, "matches", matchId);
+  const matchSnap = await getDoc(matchRef);
+  if (!matchSnap.exists()) throw new Error(`Match ${matchId} not found.`);
+  
+  const match = matchSnap.data();
+  if (!match.confirmed) throw new Error("This match is not confirmed yet.");
+  
+  // Reverse points from predictions
+  const q = query(collection(db, "predictions"), where("matchId", "==", matchId));
+  const predsSnap = await getDocs(q);
+  
+  const batch = writeBatch(db);
+  const reversePointsMap = {};
+  
+  predsSnap.forEach((predDoc) => {
+    const pred = predDoc.data();
+    const userId = pred.userId;
+    if (!userId) return;
+    const oldPoints = pred.pointsEarned || 0;
+    if (oldPoints > 0) {
+      if (!reversePointsMap[userId]) reversePointsMap[userId] = 0;
+      reversePointsMap[userId] += oldPoints;
+    }
+    // Reset prediction points
+    batch.update(predDoc.ref, {
+      pointsEarned: 0,
+      pointsBreakdown: null,
+      pointsAwardedAt: null,
+    });
+  });
+  
+  // Subtract old points from users
+  for (const [userId, points] of Object.entries(reversePointsMap)) {
+    const userRef = doc(db, "users", userId);
+    batch.update(userRef, {
+      totalPoints: increment(-points),
+      predictionsCount: increment(-1),
+    });
+  }
+  
+  // Reset match confirmed state
+  batch.update(matchRef, {
+    status: "FINISHED",
+    confirmed: false,
+    confirmedResult: null,
+    confirmedMOTM: null,
+    confirmedBy: null,
+    confirmedAt: null,
+    confirmedPenaltyScore: null,
+  });
+  
+  await batch.commit();
+  
+  return {
+    success: true,
+    message: `Match ${matchId} unresolved. ${Object.keys(reversePointsMap).length} users' points reversed. You can now re-resolve this match.`,
+    predictionsReset: predsSnap.size,
   };
 };
 
